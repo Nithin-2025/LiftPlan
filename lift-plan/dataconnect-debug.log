@@ -1,0 +1,9 @@
+I0118 11:42:57.295286   10684 load.go:37] Reloading schema and connectors...
+I0118 11:42:57.304040   10684 control.go:45] [engine.Service /emulator/lift-plan 166f] UpdateSchema(): done sources: schema\schema.gql [1384B] 
+I0118 11:42:57.311039   10684 control.go:73] [engine.Service /emulator/lift-plan 166f] UpdateConnector(default): done sources: connector\mutations.gql [1163B] connector\queries.gql [1855B] 
+I0118 11:42:57.326029   10684 codegen.go:82] [connector "default" javascriptSdk] Generating sources into "C:\\Users\\haris\\lift-plan\\dataconnect-generated\\js\\default-connector"
+I0118 11:42:57.328026   10684 collector.go:107] schema extensions wrote into "C:\\Users\\haris\\lift-plan\\dataconnect\\.dataconnect\\schema"
+Generated sources: prelude.gql [65151B] 
+I0118 11:42:57.330004   10684 collector.go:107] connector "default" javascriptSdk wrote into "C:\\Users\\haris\\lift-plan\\dataconnect-generated\\js\\default-connector"
+Generated sources: index.cjs.js [223B] package.json [634B] index.d.ts [264B] esm\index.esm.js [182B] esm\package.json [17B] 
+I0118 11:42:57.347657   10684 installsdk.go:76] Running command: C:\Program Files\nodejs\npm.cmd install file:dataconnect-generated\js\default-connector
