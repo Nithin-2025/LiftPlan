@@ -1,6 +1,9 @@
-
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import doorDimensionsLibrary from './doorDimensionsLibrary';
+import { useLocation } from 'react-router-dom';
+import jsPDF from 'jspdf';
+
+
 
 const T_SHAPE_RAIL_OPTIONS = {
   "standard 9mm": { width: 65, height: 70, widthThickness: 9, heightThickness: 9 },
@@ -13,12 +16,21 @@ const T_SHAPE_RAIL_OPTIONS = {
 
 const Hydraulic = () => {
   const canvasRef = useRef(null);
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const [selectedScale, setSelectedScale] = useState(1 / 25); // Default scale
-  const PIXELS_PER_MM = 4.25; // Conversion factor for actual size
-  const SCALE_FACTOR = PIXELS_PER_MM *  selectedScale; // Pixels per mm at 1:25 scale
-
   
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const location = useLocation();
+
+ 
+  // Get project and load details from navigation state
+  const projectDetails = location.state?.projectDetails || {};
+  const loadDetails = location.state?.loadDetails || {};
+  const [selectedScale, setSelectedScale] = useState(1 / 25); // Default scale
+  const PIXELS_PER_MM = 5; // Conversion factor for actual size
+  const SCALE_FACTOR = PIXELS_PER_MM *  selectedScale; // Pixels per mm at 1:25 scale mm at 1:25 scale
+  const [zoomLevel, setZoomLevel] = useState(1); // Default zoom level
+
+  const scaledFactor = SCALE_FACTOR * zoomLevel; // Apply zoom to scaling
+
    const [shaftDimensions, setShaftDimensions] = useState({
     innerWidth: 1590, // Inner shaft width in mm
     innerDepth:1528, // Inner shaft depth in mm
@@ -82,9 +94,11 @@ const Hydraulic = () => {
     leftDistance: 200,         // Default distance for left wall
     rightDistance: 200,        // Default distance for right wall
     rearDistance: 100,         // Default distance for rear wall
-    railDistance: 330, 
+    railDistance: 300, 
     frontDistance: 60,      // Default distance for rail wall
 });
+
+
 const[ carDoorjamb , setCarDoorJamb] = useState(60);
 
   const [doorGap, setDoorGap] = useState(30);  // Gap between the landing door and car door in mm
@@ -93,22 +107,77 @@ const[ carDoorjamb , setCarDoorJamb] = useState(60);
     width: 120, // Default width in mm
     height: 60, // Default height in mm
   });
+ 
+ 
+  
+
+  const downloadPDF = () => {
+    const mainCanvas = canvasRef.current;
+   
+
+    if (!mainCanvas ) return;
+
+    const mainImg = mainCanvas.toDataURL('image/png'); // Convert main canvas to image
+   
+    const pdf = new jsPDF({
+        orientation: 'portrait', // 'portrait' (vertical) or 'landscape' (horizontal)
+        unit: 'mm',
+        format: 'a4'
+    });
+
+    const pageWidth = 210; // A4 width in mm
+    const pageHeight = 297; // A4 height in mm
+    const margin =20*SCALE_FACTOR; // Margin from edges
+
+    // Scale images proportionally
+    const mainImgWidth = pageWidth - 5 * margin;
+    const mainImgHeight = (mainCanvas.height / mainCanvas.width) * mainImgWidth;
+
+
+
+
+    const totalHeight = mainImgHeight+ margin; // Combined height with spacing
+
+    if (totalHeight <= pageHeight ) {
+        // Both images fit within a single A4 page
+        pdf.addImage(mainImg, 'PNG', margin, margin, mainImgWidth, mainImgHeight);
+      
+    } else {
+        // If images exceed one page, scale them down to fit within page height
+        const scaleFactor = (pageHeight ) / totalHeight;
+        const scaledMainHeight = mainImgHeight*scaleFactor ;
+   
+
+        pdf.addImage(mainImg, 'PNG', margin, margin, mainImgWidth, scaledMainHeight);
+     
+    }
+
+    pdf.save('Hydraulic_Drawing.pdf'); // Save PDF
+};
+
+
 
   const drawShaft = useCallback((context) => {
+     // Clear previous drawings
+  context.clearRect(0, 0, context.canvas.width, context.canvas.height);
     // Function logic here...
-  
-  const startX = 225; 
-  const startY = 225;
+  // Apply zoom before drawing
+  context.save();
+  context.scale(zoomLevel, zoomLevel);
+  const startX = 150; 
+  const startY = 175;
 
   // Inner shaft dimensions
   const innerWidthPx = shaftDimensions.innerWidth * SCALE_FACTOR;
   const innerDepthPx = shaftDimensions.innerDepth * SCALE_FACTOR;
 
-  // Clear previous drawings
-  context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+ 
+
 
     // Draw the shaft, walls, doors, etc.
     context.strokeStyle = 'black';
+    
+    context.lineWidth = 4;
     context.strokeRect(startX, startY, innerWidthPx, innerDepthPx); // Draw inner shaft
 
 
@@ -120,46 +189,41 @@ const[ carDoorjamb , setCarDoorJamb] = useState(60);
   const rightWallThicknessPx = wallThickness.right * SCALE_FACTOR;
 
   // Starting points for the outer shaft walls
-  const outerStartX = 225 - leftWallThicknessPx;
-  const outerStartY = 225 - rearWallThicknessPx;
+  const outerStartX = 150 - leftWallThicknessPx;
+  const outerStartY = 175 - rearWallThicknessPx;
 
   // Calculate outer shaft dimensions
   const outerWidthPx = innerWidthPx + leftWallThicknessPx + rightWallThicknessPx;  // Add left and right wall thickness
   const outerDepthPx = innerDepthPx + frontWallThicknessPx + rearWallThicknessPx;  // Add front and rear wall thickness
 
- 
+ // Fill walls with concrete color
+ context.fillStyle = "#d9d9d9"; // Concrete gray color
+
+ // Fill Rear Wall
+ context.fillRect(outerStartX, outerStartY, outerWidthPx, rearWallThicknessPx);
+
+ // Fill Front Wall
+ context.fillRect(outerStartX, outerStartY + outerDepthPx - frontWallThicknessPx, outerWidthPx, frontWallThicknessPx);
+// Fill Front Wall
+
+ context.fillRect(outerStartX, outerStartY, leftWallThicknessPx, outerDepthPx);
+
+ // Fill Right Wall
+ context.fillRect(outerStartX + outerWidthPx - rightWallThicknessPx, outerStartY, rightWallThicknessPx, outerDepthPx);
   // Draw the outer shaft walls
   context.strokeStyle = 'black';
   context.lineWidth = 2;
 
   // Draw the outer shaft rectangle (with varying wall thickness)
   context.strokeRect(outerStartX, outerStartY, outerWidthPx, outerDepthPx);
+  
   // Add axis lines at mouse position
-  if (mousePosition) {
-    context.strokeStyle = 'black';
-    context.lineWidth = 1;
-
-
-    // Vertical axis
-    context.beginPath();
-    context.moveTo(mousePosition.x, 0);
-    context.lineTo(mousePosition.x, context.canvas.height);
-    context.stroke();
-
-    // Horizontal axis
-    context.beginPath();
-    context.moveTo(0, mousePosition.y);
-    context.lineTo(context.canvas.width, mousePosition.y);
-    context.stroke();
-
-    context.setLineDash([]); // Reset dash
-  }
-
+ 
 
 
     // Dimension lines for inner width
-    const arrowSize = 6;
-    const labelFontSize = 14;
+     const arrowSize = 32*SCALE_FACTOR;
+    const labelFontSize = 72*SCALE_FACTOR;
     context.strokeStyle = 'black';
     context.fillStyle = 'black';
     context.lineWidth = 1;
@@ -185,17 +249,32 @@ const[ carDoorjamb , setCarDoorJamb] = useState(60);
     context.lineTo(startX - arrowSize+ innerWidthPx + arrowSize, widthLineY);
     context.closePath();
     context.fill();
+    // Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX , startY );
+context.lineTo(startX, widthLineY);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(startX+innerWidthPx ,startY );
+context.lineTo(startX+ innerWidthPx ,widthLineY);
+context.stroke();
 
     // Label for inner width (horizontal text)
 context.save();
 context.font = `${labelFontSize}px Arial`; // Set font size and style
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(`SW ${shaftDimensions.innerWidth} `, startX + innerWidthPx / 2, widthLineY - 8); // Adjusted Y for readability
+context.fillText(`SW ${shaftDimensions.innerWidth} `, startX + innerWidthPx / 2, widthLineY -40*SCALE_FACTOR); // Adjusted Y for readability
 context.restore();
 
     // Vertical dimension line (inner depth)
-    const depthLineX =outerStartX + innerWidthPx + leftWallThicknessPx+ rightWallThicknessPx + 400 *SCALE_FACTOR; // To the right of the inner shaft
+    const depthLineX =outerStartX + innerWidthPx + leftWallThicknessPx+ rightWallThicknessPx + 350 *SCALE_FACTOR; // To the right of the inner shaft
     context.beginPath();
     context.moveTo(depthLineX, startY);
     context.lineTo(depthLineX, startY + innerDepthPx);
@@ -215,11 +294,25 @@ context.restore();
     context.lineTo(depthLineX, startY + innerDepthPx );
     context.closePath();
     context.fill();
+    context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX , startY );
+context.lineTo( depthLineX, startY);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(startX ,startY+innerDepthPx );
+context.lineTo( depthLineX ,startY+innerDepthPx);
+context.stroke();
 
     // Label for inner depth (rotated vertical text)
 context.save();
 context.font = `${labelFontSize}px Arial`; // Set font size and style
-context.translate(depthLineX + 8, startY + innerDepthPx / 2); // Move context to label position
+context.translate(depthLineX +40*SCALE_FACTOR, startY + innerDepthPx / 2); // Move context to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.textAlign = 'center';
 context.textBaseline = 'middle';
@@ -228,7 +321,7 @@ context.restore();
 
 
 // Rear wall thickness (vertical dimension line)
-const rearWallLineX = outerStartX + innerWidthPx+ leftWallThicknessPx+ rightWallThicknessPx + 400 * SCALE_FACTOR;
+const rearWallLineX = outerStartX + innerWidthPx+ leftWallThicknessPx+ rightWallThicknessPx + 350 * SCALE_FACTOR;
 context.strokeStyle = 'Black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
@@ -253,19 +346,28 @@ context.lineTo(rearWallLineX + arrowSize / 2, outerStartY + rearWallThicknessPx 
 context.lineTo(rearWallLineX, outerStartY + rearWallThicknessPx);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX , startY- rearWallThicknessPx );
+context.lineTo( rearWallLineX, startY- rearWallThicknessPx);
+context.stroke();
+
 
 // Rear wall label (rotated vertically)
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(rearWallLineX +8, outerStartY + rearWallThicknessPx / 2); // Move to label position
+context.translate(rearWallLineX +40*SCALE_FACTOR, outerStartY + rearWallThicknessPx / 2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`${wallThickness.rear} `, 0, 0);
 context.restore();
 
 // Front wall thickness (vertical dimension line)
-const frontWallLineX = outerStartX + outerWidthPx + 400 * SCALE_FACTOR; // Position for front wall dimension line
+const frontWallLineX = outerStartX + outerWidthPx + 350 * SCALE_FACTOR; // Position for front wall dimension line
 
 
 // Front wall dimension line
@@ -288,13 +390,21 @@ context.lineTo(frontWallLineX + arrowSize / 2, outerStartY+ outerDepthPx - front
 context.lineTo(frontWallLineX, outerStartY +outerDepthPx- frontWallThicknessPx);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX , startY +innerDepthPx+ frontWallThicknessPx);
+context.lineTo( rearWallLineX, startY +innerDepthPx+ frontWallThicknessPx);
+context.stroke();
 
 // Front wall label (rotated vertically)
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(frontWallLineX +8, outerStartY + outerDepthPx - frontWallThicknessPx / 2); // Move to label position
+context.translate(frontWallLineX +40*SCALE_FACTOR, outerStartY + outerDepthPx - frontWallThicknessPx / 2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`${wallThickness.front} `, 0, 0);
 context.restore();
@@ -322,13 +432,23 @@ context.lineTo(outerStartX + leftWallThicknessPx - arrowSize, leftWallLineY + ar
 context.lineTo(outerStartX + leftWallThicknessPx, leftWallLineY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX -leftWallThicknessPx, startY );
+context.lineTo(startX-leftWallThicknessPx, leftWallLineY);
+context.stroke();
+
+
 
 // Left wall label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(`${wallThickness.left} `, outerStartX + leftWallThicknessPx / 2, leftWallLineY -8);
+context.fillText(`${wallThickness.left} `, outerStartX + leftWallThicknessPx / 2, leftWallLineY -40*SCALE_FACTOR);
 context.restore();
 
 // Right wall thickness (horizontal dimension line)
@@ -353,16 +473,26 @@ context.lineTo(outerStartX + outerWidthPx, rightWallLineY);
 context.closePath();
 context.fill();
 
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(startX+innerWidthPx+ rightWallThicknessPx ,startY );
+context.lineTo(startX+ innerWidthPx +rightWallThicknessPx,leftWallLineY);
+context.stroke();
+
 // Right wall label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(`${wallThickness.right} `, outerStartX + outerWidthPx - rightWallThicknessPx / 2, rightWallLineY -8);
+context.fillText(`${wallThickness.right} `, outerStartX + outerWidthPx - rightWallThicknessPx / 2, rightWallLineY -40*SCALE_FACTOR);
 context.restore();
 // Draw dimension line from the left inner shaft wall to the left wall opening line
 
-
+  
 
 
 
@@ -426,16 +556,16 @@ context.restore();
     const doorGapPx = doorGap * SCALE_FACTOR;
     // Wall thickness and inner dimensions
     const cabinWallThicknessPx = cabinSettings.wallThickness * SCALE_FACTOR;
-    const carDoorjambPx = (carDoorjamb * SCALE_FACTOR )- cabinWallThicknessPx + verticalOffset*SCALE_FACTOR ;
+    const carDoorjambPx = carDoorjamb * SCALE_FACTOR -cabinWallThicknessPx +verticalOffset*SCALE_FACTOR ;
     const frontDistancePx = carDoorHeightPx + landingDoorHeightPx + doorGapPx + carDoorjambPx  ;
     const rearWallThicknessPx = wallThickness.rear * SCALE_FACTOR;
   const frontWallThicknessPx = wallThickness.front * SCALE_FACTOR;
   const leftWallThicknessPx = wallThickness.left * SCALE_FACTOR;
   const rightWallThicknessPx = wallThickness.right * SCALE_FACTOR;
   const frameWidthPx = doorFrameSettings.width * SCALE_FACTOR;
-  const arrowSize = 5;
-const labelFontSize = 12;
-const perpendicularSize = 5; // Size of the perpendicular lines
+   const arrowSize = 32*SCALE_FACTOR;
+const labelFontSize = 72*SCALE_FACTOR;
+const perpendicularSize = 24 *SCALE_FACTOR; // Size of the perpendicular lines
             const labelOffset = 8; // Offset for the label position
 
 
@@ -446,10 +576,10 @@ const perpendicularSize = 5; // Size of the perpendicular lines
             // Offset cabin entrance by wallOpeningOffset to the right
             cabinX = startX + railwallDistancePx ;
             cabinWidthPx = innerWidthPx - railwallDistancePx - rightDistancePx;
-            cabinY = startY + rearDistancePx +verticalOffset*SCALE_FACTOR;  // 90 mm from rear wall
-            cabinDepthPx = innerDepthPx - rearDistancePx - frontDistancePx - verticalOffset*SCALE_FACTOR;
+            cabinY = startY + rearDistancePx ;  // 90 mm from rear wall
+            cabinDepthPx = innerDepthPx - rearDistancePx - frontDistancePx ;
             centerX = cabinX + cabinWidthPx / 2;
-            centerY = cabinY + cabinDepthPx/2 + carDoorjambPx/2 + carDoorHeightPx/2 ;
+            centerY = cabinY + cabinDepthPx/2 + carDoorjambPx/2 +carDoorHeightPx/2 - verticalOffset*SCALE_FACTOR/2  ;
             
 
             // Draw the center axis for width
@@ -459,42 +589,59 @@ const perpendicularSize = 5; // Size of the perpendicular lines
 
 
 // Horizontal Dimension Line for Cabin Width
-const cabinWidthLineY = cabinY  - rearDistancePx- rearWallThicknessPx- 100 * SCALE_FACTOR; // Below the cabin
-context.strokeStyle = 'green';
+const cabinWidthLineY = cabinY - rearDistancePx - rearWallThicknessPx - 100 * SCALE_FACTOR; // Below the cabin
+
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
-context.lineWidth = 0.5;
+
+// Thicker line for the main dimension line
+context.lineWidth = 1; 
 
 // Dimension line for cabin width
 context.beginPath();
-context.moveTo(cabinX+ cabinWallThicknessPx, cabinWidthLineY); // Start at left edge of the cabin
-context.lineTo(cabinX - cabinWallThicknessPx+ cabinWidthPx, cabinWidthLineY); // End at right edge of the cabin
+context.moveTo(cabinX + cabinWallThicknessPx, cabinWidthLineY); // Start at left edge of the cabin
+context.lineTo(cabinX - cabinWallThicknessPx + cabinWidthPx, cabinWidthLineY); // End at right edge of the cabin
 context.stroke();
-
 
 // Arrows for cabin width
 // Left arrow
 context.beginPath();
-context.moveTo(cabinX + arrowSize+ cabinWallThicknessPx, cabinWidthLineY - arrowSize / 2);
-context.lineTo(cabinX + arrowSize+ cabinWallThicknessPx, cabinWidthLineY + arrowSize / 2);
-context.lineTo(cabinX+ cabinWallThicknessPx, cabinWidthLineY);
+context.moveTo(cabinX + arrowSize + cabinWallThicknessPx, cabinWidthLineY - arrowSize / 2);
+context.lineTo(cabinX + arrowSize + cabinWallThicknessPx, cabinWidthLineY + arrowSize / 2);
+context.lineTo(cabinX + cabinWallThicknessPx, cabinWidthLineY);
 context.closePath();
 context.fill();
 
 // Right arrow
 context.beginPath();
-context.moveTo(cabinX + cabinWidthPx - arrowSize- cabinWallThicknessPx, cabinWidthLineY - arrowSize / 2);
-context.lineTo(cabinX + cabinWidthPx - arrowSize- cabinWallThicknessPx, cabinWidthLineY + arrowSize / 2);
-context.lineTo(cabinX + cabinWidthPx- cabinWallThicknessPx, cabinWidthLineY);
+context.moveTo(cabinX + cabinWidthPx - arrowSize - cabinWallThicknessPx, cabinWidthLineY - arrowSize / 2);
+context.lineTo(cabinX + cabinWidthPx - arrowSize - cabinWallThicknessPx, cabinWidthLineY + arrowSize / 2);
+context.lineTo(cabinX + cabinWidthPx - cabinWallThicknessPx, cabinWidthLineY);
 context.closePath();
 context.fill();
 
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWallThicknessPx, cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWallThicknessPx, cabinWidthLineY);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWidthPx - cabinWallThicknessPx, cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWidthPx - cabinWallThicknessPx, cabinWidthLineY);
+context.stroke();
+
 // Label for cabin width
-context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(` CW ${(cabinWidthPx/ SCALE_FACTOR - cabinWallThicknessPx*2/SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, cabinWidthLineY - 8);
-context.restore();
+context.fillText(` CW ${(cabinWidthPx / SCALE_FACTOR - (cabinWallThicknessPx * 2) / SCALE_FACTOR).toFixed(0)} `, 
+    cabinX + cabinWidthPx / 2, cabinWidthLineY - 40 * SCALE_FACTOR);
 
 // Vertical Dimension Line for Cabin Depth
 const cabinDepthLineX = cabinX + cabinWidthPx + rightDistancePx+ rightWallThicknessPx+ 100 * SCALE_FACTOR; // To the right of the cabin
@@ -522,13 +669,28 @@ context.lineTo(cabinDepthLineX + arrowSize / 2, cabinY + cabinDepthPx - arrowSiz
 context.lineTo(cabinDepthLineX, cabinY + cabinDepthPx - cabinWallThicknessPx);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY+cabinWallThicknessPx );
+context.lineTo(cabinDepthLineX , cabinY+cabinWallThicknessPx);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY +cabinDepthPx - cabinWallThicknessPx);
+context.lineTo(cabinDepthLineX  , cabinY+cabinDepthPx- cabinWallThicknessPx);
+context.stroke();
+
 
 // Label for cabin depth
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(cabinDepthLineX +8, cabinY + cabinDepthPx / 2); // Move to label position
+context.translate(cabinDepthLineX +40*SCALE_FACTOR, cabinY + cabinDepthPx / 2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` CD ${(cabinDepthPx  /SCALE_FACTOR  - cabinWallThicknessPx*2/SCALE_FACTOR).toFixed(0)} `, 0, 0);
 context.restore();
@@ -536,7 +698,7 @@ context.restore();
 
 
 // Horizontal Dimension Line for Cabin Width
-const PlatformLineY = cabinY  - rearDistancePx- rearWallThicknessPx- 225 * SCALE_FACTOR; // Below the cabin
+const PlatformLineY = cabinY  - rearDistancePx- rearWallThicknessPx- 225 * SCALE_FACTOR ; // Below the cabin
 
 
 // Dimension line for cabin width
@@ -561,13 +723,29 @@ context.lineTo(cabinX + cabinWidthPx - arrowSize, PlatformLineY + arrowSize / 2)
 context.lineTo(cabinX + cabinWidthPx, PlatformLineY);
 context.closePath();
 context.fill();
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY );
+context.lineTo(cabinX , PlatformLineY);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWidthPx , cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWidthPx , PlatformLineY);
+context.stroke();
+
 
 // Label for cabin width
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(` PLW ${(cabinWidthPx / SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, PlatformLineY - 8);
+context.fillText(` PLW ${(cabinWidthPx / SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, PlatformLineY -40*SCALE_FACTOR);
 context.restore();
 
 // Vertical Dimension Line for Cabin Depth
@@ -596,21 +774,36 @@ context.lineTo(PlatformLineX, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeigh
 context.closePath();
 context.fill();
 
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY );
+context.lineTo(PlatformLineX , cabinY);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY +cabinDepthPx +carDoorjambPx +landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(PlatformLineX  , cabinY+cabinDepthPx +carDoorjambPx +landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
+
+
 // Label for cabin depth
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(PlatformLineX +8, cabinY + cabinDepthPx / 2); // Move to label position
+context.translate(PlatformLineX +40*SCALE_FACTOR, cabinY + cabinDepthPx / 2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` PLD ${(cabinDepthPx / SCALE_FACTOR + carDoorjambPx/SCALE_FACTOR + carDoorHeightPx/SCALE_FACTOR- verticalOffset*SCALE_FACTOR/SCALE_FACTOR).toFixed(0)} `, 0, 0);
 context.restore();
 
 // Rear Distance
-const rearDistanceLineX = startY+ innerWidthPx+rearWallThicknessPx  + 225 * SCALE_FACTOR; // Position left of the cabin
+const rearDistanceLineX = startX+ innerWidthPx+rearWallThicknessPx  + 225 * SCALE_FACTOR ; // Position left of the cabin
 context.beginPath();
 context.moveTo(rearDistanceLineX, startY); // Start from top of the cabin
-context.lineTo(rearDistanceLineX,  startY +rearDistancePx); // End at bottom of the cabin
+context.lineTo(rearDistanceLineX,  startY + rearDistancePx+ verticalOffset*SCALE_FACTOR); // End at bottom of the cabin
 context.stroke();
 
 // Rear Distance Arrows
@@ -629,13 +822,22 @@ context.lineTo(rearDistanceLineX + arrowSize / 2, startY +rearDistancePx- arrowS
 context.lineTo(rearDistanceLineX, startY+ rearDistancePx);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX , startY );
+context.lineTo(rearDistanceLineX , startY);
+context.stroke();
+
+
 
 // Rear Distance Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(rearDistanceLineX +8, startY+rearDistancePx/2); // Adjust label position
+context.translate(rearDistanceLineX +40*SCALE_FACTOR, startY+rearDistancePx/2); // Adjust label position
 context.rotate(Math.PI / 2); // Rotate text for vertical orientation
 context.fillText(` ${cabinSettings.rearDistance}`, 0, 0);
 context.restore();
@@ -674,7 +876,7 @@ context.textBaseline = 'middle';
 context.fillText(
   ` ${cabinSettings.rightDistance}`,
   cabinX + cabinWidthPx + rightDistancePx / 2,
-  rightDistanceLineY - 8
+  rightDistanceLineY -40*SCALE_FACTOR
 );
 context.restore();
 
@@ -709,7 +911,7 @@ context.stroke();
 
 // Left Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`; // Set font size and style
+  // Set font size and style
 context.textAlign = 'center'; // Center the label
 context.textBaseline = 'middle'; // Vertically align the text
 context.fillStyle = 'black';
@@ -749,10 +951,10 @@ context.fill();
 
 // Label for cabin depth
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX +8, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx-cabinWallThicknessPx*2)/2); // Move to label position
+context.translate(carDepthLineX +40*SCALE_FACTOR, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx-cabinWallThicknessPx*2)/2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${(   carDoorjamb*SCALE_FACTOR/SCALE_FACTOR + carDoorHeightPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
@@ -784,12 +986,21 @@ context.lineTo(carDepthLineX1 + perpendicularSize/2,cabinY + cabinDepthPx+ carDo
 
 context.stroke();
 
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx-verticalOffset*SCALE_FACTOR );
+context.lineTo(carDepthLineX1 , cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
+
+
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX1 +8, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx/2)/2- verticalOffset*SCALE_FACTOR/2); // Move to label position
+context.translate(carDepthLineX1 +40*SCALE_FACTOR, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx) - doorGapPx/2- verticalOffset*SCALE_FACTOR); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${(  doorGapPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
@@ -820,24 +1031,32 @@ context.lineTo(carDepthLineX2 + perpendicularSize/2,cabinY + cabinDepthPx+ carDo
 
 context.stroke();
 
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx+landingDoorHeightPx-verticalOffset*SCALE_FACTOR );
+context.lineTo(carDepthLineX1 , cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
+
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX2 + 8, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx- verticalOffset*SCALE_FACTOR/2)); // Move to label position
+context.translate(carDepthLineX2 +40*SCALE_FACTOR, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx + doorGapPx)+ landingDoorHeightPx- verticalOffset*SCALE_FACTOR)); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${( landingDoorHeightPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
 
-const carDepthLineX3 = cabinX  - railwallDistancePx- leftWallThicknessPx- 250 * SCALE_FACTOR; // To the right of the cabin
+const carDepthLineX3 = cabinX  - railwallDistancePx- leftWallThicknessPx- 225 * SCALE_FACTOR; // To the right of the cabin
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
 context.moveTo(carDepthLineX3, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx - verticalOffset*SCALE_FACTOR ); // Start at top edge of the cabin
-context.lineTo(carDepthLineX3, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx + doorGapPx + landingDoorHeightPx- verticalOffset*SCALE_FACTOR); // End at bottom edge of the cabin
+context.lineTo(carDepthLineX3, startY+ innerDepthPx); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
@@ -851,19 +1070,20 @@ context.stroke();
 
 // Bottom arrow
 context.beginPath();
-context.moveTo(carDepthLineX3 - perpendicularSize/2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx- verticalOffset*SCALE_FACTOR);
-context.lineTo(carDepthLineX3 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx- verticalOffset*SCALE_FACTOR);
+context.moveTo(carDepthLineX3 - perpendicularSize/2, startY+ innerDepthPx);
+context.lineTo(carDepthLineX3 + perpendicularSize/2, startY+ innerDepthPx);
 
-context.stroke();
+
+
 
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX3 -8, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx- verticalOffset*SCALE_FACTOR/2)); // Move to label position
+context.translate(carDepthLineX3 -40*SCALE_FACTOR,  startY+innerDepthPx -verticalOffset*SCALE_FACTOR/2 -landingDoorHeightPx/2 - doorGapPx/2); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
-context.fillText(`  ${( landingDoorHeightPx/ SCALE_FACTOR+ doorGapPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
+context.fillText(`  ${( landingDoorHeightPx/ SCALE_FACTOR+ doorGapPx/SCALE_FACTOR + verticalOffset*SCALE_FACTOR/SCALE_FACTOR  ).toFixed(0)} `, 0, 0);
 context.restore();
 
 
@@ -897,7 +1117,7 @@ context.stroke();
 
 // Right Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`; // Set font size and style
+  // Set font size and style
 context.textAlign = 'center'; // Center the label
 context.textBaseline = 'middle'; // Vertically align the text
 context.fillStyle = 'black';
@@ -933,7 +1153,7 @@ context.stroke();
 
 // Top Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`; // Set font size and style
+  // Set font size and style
 context.textAlign = 'center'; // Center the label
 context.textBaseline = 'middle'; // Vertically align the text
 context.translate(topWallThicknessLineX + labelOffset, cabinY + cabinWallThicknessPx / 2); // Adjust label position
@@ -943,7 +1163,7 @@ context.restore();
 
 
 // Horizontal Center Axis Dimension Line
-const centerAxisLineY = centerY - cabinDepthPx/2  - rearDistancePx- rearWallThicknessPx - 425 * SCALE_FACTOR; // Position below the center axis
+const centerAxisLineY = cabinY  - rearDistancePx- rearWallThicknessPx - 350 * SCALE_FACTOR; // Position below the center axis
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 context.beginPath();
@@ -980,11 +1200,11 @@ context.textBaseline = 'middle';
 context.fillText(
   ` ${((centerX - startX) / SCALE_FACTOR).toFixed(0)} `,
   (startX + centerX) / 2,
-  centerAxisLineY - 8
+  centerAxisLineY -40*SCALE_FACTOR
 );
 context.restore();
 // Horizontal Center Axis Dimension Line
-const centerAxisLineY1 = centerY - cabinDepthPx/2  - rearDistancePx- rearWallThicknessPx - 425 * SCALE_FACTOR; // Position below the center axis
+const centerAxisLineY1 = cabinY  - rearDistancePx- rearWallThicknessPx -350 * SCALE_FACTOR ; // Position below the center axis
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 context.beginPath();
@@ -1008,6 +1228,14 @@ context.lineTo(centerX + arrowSize, centerAxisLineY1 + arrowSize / 2);
 context.lineTo(centerX, centerAxisLineY1);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(centerX,startY);
+context.lineTo(centerX, centerAxisLineY1);
+context.stroke();
 
 // Horizontal Center Axis Label
 context.save();
@@ -1017,12 +1245,12 @@ context.textBaseline = 'middle';
 context.fillText(
   ` ${((startX -centerX  + innerWidthPx) / SCALE_FACTOR).toFixed(0)} `,
   (startX+ innerWidthPx + centerX) / 2,
-  centerAxisLineY1 - 8
+  centerAxisLineY1 -40*SCALE_FACTOR
 );
 context.restore();
 
 // Vertical Center Axis Dimension Line
-const centerAxisLineX = centerX- cabinWidthPx/2- railwallDistancePx- rightDistancePx  - 425 * SCALE_FACTOR; // Position right of the center axis
+const centerAxisLineX =cabinX-railwallDistancePx-leftWallThicknessPx  - 350 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
 context.moveTo(centerAxisLineX, startY); // Start at the top edge
@@ -1045,13 +1273,22 @@ context.lineTo(centerAxisLineX + arrowSize / 2, centerY - arrowSize);
 context.lineTo(centerAxisLineX, centerY);
 context.closePath();
 context.fill();
+context.stroke();
+
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  centerY );
+context.lineTo(centerAxisLineX , centerY);
+context.stroke();
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX - 8, (startY + centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX -40*SCALE_FACTOR, (startY + centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   ` ${((centerY - startY) / SCALE_FACTOR ).toFixed(0)} `,
@@ -1060,7 +1297,7 @@ context.fillText(
 );
 context.restore();
 // Vertical Center Axis Dimension Line
-const centerAxisLineX1= centerX- cabinWidthPx/2- railwallDistancePx- rightDistancePx  - 425 * SCALE_FACTOR; // Position right of the center axis
+const centerAxisLineX1= cabinX-railwallDistancePx-leftWallThicknessPx  - 350 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
 context.moveTo(centerAxisLineX1, startY+ innerDepthPx); // Start at the top edge
@@ -1083,13 +1320,29 @@ context.lineTo(centerAxisLineX1 + arrowSize / 2, centerY + arrowSize);
 context.lineTo(centerAxisLineX1, centerY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,startY);
+context.lineTo(centerAxisLineX1, startY);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,startY+innerDepthPx);
+context.lineTo(centerAxisLineX1, startY+innerDepthPx);
+context.stroke();
+
+
+
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX1 - 8, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX1 -40*SCALE_FACTOR, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   ` ${((  startY - centerY + innerDepthPx) / SCALE_FACTOR ).toFixed(0)} `,
@@ -1097,19 +1350,21 @@ context.fillText(
   0
 );
 context.restore();
-const centerAxisLineX1EE= centerX- cabinWidthPx/2- railwallDistancePx- rightDistancePx  - 300 * SCALE_FACTOR; // Position right of the center axis
+
+
+const centerAxisLineX1EE=   cabinX - railwallDistancePx- leftWallThicknessPx-225 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
-context.moveTo(centerAxisLineX1EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx ); // Start at the top edge
+context.moveTo(centerAxisLineX1EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx -verticalOffset*SCALE_FACTOR); // Start at the top edge
 context.lineTo(centerAxisLineX1EE, centerY ); // End at the center
 context.stroke();
 
 // Vertical Center Axis Arrows
 // Top arrow
 context.beginPath();
-context.moveTo(centerAxisLineX1EE - arrowSize / 2, startY - arrowSize + innerDepthPx - landingDoorHeightPx- doorGapPx);
-context.lineTo(centerAxisLineX1EE + arrowSize / 2, startY - arrowSize+ innerDepthPx - landingDoorHeightPx- doorGapPx);
-context.lineTo(centerAxisLineX1EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx);
+context.moveTo(centerAxisLineX1EE - arrowSize / 2, startY - arrowSize + innerDepthPx - landingDoorHeightPx- doorGapPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX1EE + arrowSize / 2, startY - arrowSize+ innerDepthPx - landingDoorHeightPx- doorGapPx -verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX1EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx -verticalOffset*SCALE_FACTOR);
 context.closePath();
 context.fill();
 
@@ -1121,15 +1376,25 @@ context.lineTo(centerAxisLineX1EE, centerY);
 context.closePath();
 context.fill();
 
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,cabinY+cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX1EE, cabinY+cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
+
+
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX1EE - 8, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX1EE -40*SCALE_FACTOR, (startY + innerDepthPx+ centerY-verticalOffset*SCALE_FACTOR) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
-  ` EE ${((  startY - centerY + innerDepthPx- landingDoorHeightPx- doorGapPx) / SCALE_FACTOR).toFixed(0)} `,
+  ` EE ${((  startY  + innerDepthPx -centerY -verticalOffset*SCALE_FACTOR-landingDoorHeightPx-doorGapPx) / SCALE_FACTOR ).toFixed(0)} `,
   0,
   0
 );
@@ -1144,14 +1409,14 @@ context.lineWidth = 1;
 context.setLineDash([5, 5]); // Dashed line
 
 context.beginPath();
-context.moveTo(cabinX -railwallDistancePx -leftWallThicknessPx -20, centerY); // Start at the left edge
-context.lineTo(cabinX + cabinWidthPx + rightDistancePx + rightWallThicknessPx+10 , centerY); // Extend to the right edge
+context.moveTo(cabinX -railwallDistancePx -leftWallThicknessPx -50*SCALE_FACTOR, centerY); // Start at the left edge
+context.lineTo(cabinX + cabinWidthPx + rightDistancePx + rightWallThicknessPx+50*SCALE_FACTOR , centerY); // Extend to the right edge
 context.stroke();
 
 // Draw the center axis for depth
 context.beginPath();
-context.moveTo(centerX, cabinY - rearDistancePx - rearWallThicknessPx -20 ); // Start at the top edge
-context.lineTo(centerX, cabinY + cabinDepthPx+ frontDistancePx+frontWallThicknessPx+20 ); // Extend to the bottom edge
+context.moveTo(centerX, cabinY - rearDistancePx - rearWallThicknessPx -50*SCALE_FACTOR ); // Start at the top edge
+context.lineTo(centerX, cabinY + cabinDepthPx+ frontDistancePx+frontWallThicknessPx+50*SCALE_FACTOR ); // Extend to the bottom edge
 context.stroke();
 
 // Reset the dash style
@@ -1165,14 +1430,14 @@ context.setLineDash([]);
             cabinY = startY + rearDistancePx;  // 90 mm from rear wall
             cabinDepthPx = innerDepthPx - rearDistancePx - frontDistancePx;
             centerX = cabinX + cabinWidthPx / 2;
-            centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2;
+            centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2 - verticalOffset*SCALE_FACTOR/2;
 
             // Constants for arrow size and label font size
 
 
 // Horizontal Dimension Line for Cabin Width
 const cabinWidthLineY1 = cabinY  - rearDistancePx- rearWallThicknessPx- 100 * SCALE_FACTOR; // Below the cabin
-context.strokeStyle = 'green';
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -1199,17 +1464,32 @@ context.lineTo(cabinX + cabinWidthPx- cabinWallThicknessPx, cabinWidthLineY1);
 context.closePath();
 context.fill();
 
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWallThicknessPx, cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWallThicknessPx, cabinWidthLineY1);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWidthPx - cabinWallThicknessPx, cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWidthPx - cabinWallThicknessPx, cabinWidthLineY1);
+context.stroke();
 // Label for cabin width
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(` CW ${(cabinWidthPx/ SCALE_FACTOR - cabinWallThicknessPx*2/SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, cabinWidthLineY1 - 10);
+context.fillText(` CW ${(cabinWidthPx/ SCALE_FACTOR - cabinWallThicknessPx*2/SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, cabinWidthLineY1 -40*SCALE_FACTOR);
 context.restore();
 
 // Vertical Dimension Line for Cabin Depth
 const cabinDepthLineX1 = cabinX  - leftDistancePx- leftWallThicknessPx- 100 * SCALE_FACTOR; // To the right of the cabin
-context.strokeStyle = 'green';
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -1235,13 +1515,28 @@ context.lineTo(cabinDepthLineX1 + arrowSize / 2, cabinY + cabinDepthPx - arrowSi
 context.lineTo(cabinDepthLineX1, cabinY + cabinDepthPx - cabinWallThicknessPx);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY+cabinWallThicknessPx );
+context.lineTo(cabinDepthLineX1 , cabinY+cabinWallThicknessPx);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY +cabinDepthPx - cabinWallThicknessPx);
+context.lineTo(cabinDepthLineX1  , cabinY+cabinDepthPx- cabinWallThicknessPx);
+context.stroke();
+
 
 // Label for cabin depth
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(cabinDepthLineX1 -10, cabinY + cabinDepthPx / 2); // Move to label position
+context.translate(cabinDepthLineX1 -40*SCALE_FACTOR, cabinY + cabinDepthPx / 2); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` CD ${(cabinDepthPx  /SCALE_FACTOR  - cabinWallThicknessPx*2/SCALE_FACTOR).toFixed(0)} `, 0, 0);
 context.restore();
@@ -1249,7 +1544,7 @@ context.restore();
 
 // Horizontal Dimension Line for Cabin Width
 const PlatformLineY1 = cabinY  - rearDistancePx- rearWallThicknessPx- 225 * SCALE_FACTOR; // Below the cabin
-context.strokeStyle = 'green';
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -1275,18 +1570,33 @@ context.lineTo(cabinX + cabinWidthPx - arrowSize, PlatformLineY1 + arrowSize / 2
 context.lineTo(cabinX + cabinWidthPx, PlatformLineY1);
 context.closePath();
 context.fill();
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY );
+context.lineTo(cabinX , PlatformLineY1);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWidthPx , cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWidthPx , PlatformLineY1);
+context.stroke();
 
 // Label for cabin width
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(` PLW ${(cabinWidthPx / SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, PlatformLineY1 - 10);
+context.fillText(` PLW ${(cabinWidthPx / SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, PlatformLineY1 -40*SCALE_FACTOR);
 context.restore();
 
 // Vertical Dimension Line for Cabin Depth
 const PlatformLineX1 = cabinX - leftDistancePx- leftWallThicknessPx- 225 * SCALE_FACTOR; // To the right of the cabin
-context.strokeStyle = 'green';
+context.strokeStyle = 'blackk';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -1312,19 +1622,32 @@ context.lineTo(PlatformLineX1 + arrowSize / 2, cabinY + cabinDepthPx + carDoorja
 context.lineTo(PlatformLineX1, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY );
+context.lineTo(PlatformLineX1 , cabinY);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY +cabinDepthPx +carDoorjambPx +landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(PlatformLineX1  , cabinY+cabinDepthPx +carDoorjambPx +landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
 
 // Label for cabin depth
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(PlatformLineX1 -10, cabinY + cabinDepthPx / 2); // Move to label position
+context.translate(PlatformLineX1 -40*SCALE_FACTOR, cabinY + cabinDepthPx / 2); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` PLD ${(cabinDepthPx / SCALE_FACTOR + carDoorjambPx/ SCALE_FACTOR+ carDoorHeightPx/SCALE_FACTOR).toFixed(0)} `, 0, 0);
 context.restore();
 
 // Rear Distance
-const rearDistanceLineX1 = startY -leftWallThicknessPx- 225 * SCALE_FACTOR; // Position left of the cabin
+const rearDistanceLineX1 = cabinX - leftDistancePx- leftWallThicknessPx- 225 * SCALE_FACTOR;; // Position left of the cabin
 context.beginPath();
 context.moveTo(rearDistanceLineX1, startY); // Start from top of the cabin
 context.lineTo(rearDistanceLineX1,  startY +rearDistancePx); // End at bottom of the cabin
@@ -1352,7 +1675,7 @@ context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(rearDistanceLineX1- 10, startY+rearDistancePx/2); // Adjust label position
+context.translate(rearDistanceLineX1-40*SCALE_FACTOR, startY+rearDistancePx/2); // Adjust label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical orientation
 context.fillText(` ${cabinSettings.rearDistance}`, 0, 0);
 context.restore();
@@ -1376,8 +1699,8 @@ context.fill();
 
 // Right arrow
 context.beginPath();
-context.moveTo(cabinX  - leftDistancePx - arrowSize, leftDistanceLineY - arrowSize / 2);
-context.lineTo(cabinX - leftDistancePx - arrowSize, leftDistanceLineY + arrowSize / 2);
+context.moveTo(cabinX  - leftDistancePx + arrowSize, leftDistanceLineY - arrowSize / 2);
+context.lineTo(cabinX - leftDistancePx + arrowSize, leftDistanceLineY + arrowSize / 2);
 context.lineTo(cabinX  - leftDistancePx, leftDistanceLineY);
 context.closePath();
 context.fill();
@@ -1389,8 +1712,8 @@ context.textAlign = 'center';
 context.textBaseline = 'middle';
 context.fillText(
   ` ${cabinSettings.leftDistance}`,
-  cabinX  + leftDistancePx / 2,
-  leftDistanceLineY- 10
+  cabinX  - leftDistancePx/2,
+  leftDistanceLineY-40*SCALE_FACTOR
 );
 context.restore();
 
@@ -1422,13 +1745,13 @@ context.stroke();
 
 // Left Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
 context.fillText(
   `${cabinSettings.wallThickness}`,
   cabinX + cabinWallThicknessPx / 2,
-  leftWallThicknessLineY1 - 10
+  leftWallThicknessLineY1 -40*SCALE_FACTOR
 );
 context.restore();
 
@@ -1455,13 +1778,13 @@ context.stroke();
 
 // Left Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
 context.fillText(
   `${cabinSettings.wallThickness}`,
   cabinX + cabinWidthPx- cabinWallThicknessPx / 2,
-  rightWallThicknessLineY1 - 10
+  rightWallThicknessLineY1 -40*SCALE_FACTOR
 );
 context.restore();
 // Top Cabin Wall Thickness
@@ -1488,15 +1811,16 @@ context.stroke();
 
 // Top Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(topWallThicknessLineX1 - 10, cabinY + cabinWallThicknessPx / 2); // Adjust label position
+context.translate(topWallThicknessLineX1 -40*SCALE_FACTOR, cabinY + cabinWallThicknessPx / 2); // Adjust label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` ${cabinSettings.wallThickness}`, 0, 0);
 context.restore();
 // Horizontal Center Axis Dimension Line
-const centerAxisLineY2 = centerY - cabinDepthPx/2  - rearDistancePx- rearWallThicknessPx - 375 * SCALE_FACTOR; // Position below the center axis
+
+const centerAxisLineY2 = cabinY -rearDistancePx-rearWallThicknessPx - 350 * SCALE_FACTOR; // Position below the center axis
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 context.beginPath();
@@ -1529,7 +1853,7 @@ context.textBaseline = 'middle';
 context.fillText(
   ` ${((centerX - startX) / SCALE_FACTOR).toFixed(0)} `,
   (startX + centerX) / 2,
-  centerAxisLineY2 - 10
+  centerAxisLineY2 -40*SCALE_FACTOR
 );
 context.restore();
 const carDepthLineX4 = cabinX -leftDistancePx-leftWallThicknessPx- 100 * SCALE_FACTOR; // To the right of the cabin
@@ -1539,7 +1863,7 @@ context.lineWidth = 1;
 // Dimension line for cabin depth
 context.beginPath();
 context.moveTo(carDepthLineX4, cabinY- cabinWallThicknessPx+ cabinDepthPx); // Start at top edge of the cabin
-context.lineTo(carDepthLineX4, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx); // End at bottom edge of the cabin
+context.lineTo(carDepthLineX4, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx-verticalOffset*SCALE_FACTOR); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
@@ -1553,18 +1877,18 @@ context.fill();
 
 // Bottom arrow
 context.beginPath();
-context.moveTo(carDepthLineX4 - arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx-arrowSize);
-context.lineTo(carDepthLineX4 + arrowSize / 2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx- arrowSize);
-context.lineTo(carDepthLineX4, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx);
+context.moveTo(carDepthLineX4 - arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx-arrowSize-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX4 + arrowSize / 2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx- arrowSize-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX4, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.closePath();
 context.fill();
 
 // Label for cabin depth
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX4 -8, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx)/2); // Move to label position
+context.translate(carDepthLineX4 -40*SCALE_FACTOR, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx)/2-verticalOffset*SCALE_FACTOR/2); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${(   carDoorjamb*SCALE_FACTOR/SCALE_FACTOR + carDoorHeightPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
@@ -1596,14 +1920,22 @@ context.lineTo(carDepthLineX5 + perpendicularSize/2,cabinY + cabinDepthPx+ carDo
 
 context.stroke();
 
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx-verticalOffset*SCALE_FACTOR );
+context.lineTo(carDepthLineX5 , cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
+
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX5 -8, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx/2)/2); // Move to label position
+context.translate(carDepthLineX5 -40*SCALE_FACTOR, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx)-doorGapPx/2- verticalOffset*SCALE_FACTOR ); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
-context.fillText(`  ${(  doorGapPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
+context.fillText(`  ${(  doorGapPx/SCALE_FACTOR ).toFixed(0)} `,0, 0 );
 context.restore();
 
 const carDepthLineX6 = cabinX -leftDistancePx-leftWallThicknessPx- 225 * SCALE_FACTOR; // To the right of the cabin
@@ -1631,18 +1963,25 @@ context.moveTo(carDepthLineX6 - perpendicularSize/2, cabinY + cabinDepthPx+ carD
 context.lineTo(carDepthLineX6 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
 
 context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx+landingDoorHeightPx-verticalOffset*SCALE_FACTOR );
+context.lineTo(carDepthLineX6 , cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
 
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX6 - 8, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx)); // Move to label position
+context.translate(carDepthLineX6 -40*SCALE_FACTOR, cabinY + cabinDepthPx  +( (carDoorjambPx +carDoorHeightPx + doorGapPx)+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR)); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${( landingDoorHeightPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
 
-const carDepthLineX7 = cabinX  + cabinWidthPx+ railwallDistancePx+ rightWallThicknessPx+225*SCALE_FACTOR; // To the right of the cabin
+const carDepthLineX7 =  startX + innerWidthPx+ rightWallThicknessPx + 225* SCALE_FACTOR; // To the right of the cabin
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 
@@ -1670,17 +2009,17 @@ context.stroke();
 
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX7 +8, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx)); // Move to label position
+context.translate(carDepthLineX7 +40*SCALE_FACTOR, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx)); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
-context.fillText(`  ${( landingDoorHeightPx/ SCALE_FACTOR+ doorGapPx/SCALE_FACTOR +verticalOffset ).toFixed(0)} `, 0, 0);
+context.fillText(`  ${( landingDoorHeightPx/ SCALE_FACTOR+ doorGapPx/SCALE_FACTOR+verticalOffset*SCALE_FACTOR/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
 
 
 // Horizontal Center Axis Dimension Line
-const centerAxisLineY3 = centerY - cabinDepthPx/2  - rearDistancePx- rearWallThicknessPx - 375 * SCALE_FACTOR; // Position below the center axis
+const centerAxisLineY3 = cabinY - rearDistancePx- rearWallThicknessPx - 350 * SCALE_FACTOR; // Position below the center axis
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 context.beginPath();
@@ -1704,6 +2043,15 @@ context.lineTo(centerX + arrowSize, centerAxisLineY3 + arrowSize / 2);
 context.lineTo(centerX, centerAxisLineY3);
 context.closePath();
 context.fill();
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(centerX,startY);
+context.lineTo(centerX, centerAxisLineY3);
+context.stroke();
 
 // Horizontal Center Axis Label
 context.save();
@@ -1713,12 +2061,12 @@ context.textBaseline = 'middle';
 context.fillText(
   ` ${((startX -centerX  + innerWidthPx) / SCALE_FACTOR).toFixed(0)} `,
   (startX+ innerWidthPx + centerX) / 2,
-  centerAxisLineY3 - 10
+  centerAxisLineY3 -40*SCALE_FACTOR
 );
 context.restore();
 
 // Vertical Center Axis Dimension Line
-const centerAxisLineX2 = centerX- cabinWidthPx/2- railwallDistancePx- leftDistancePx  - 275 * SCALE_FACTOR; // Position right of the center axis
+const centerAxisLineX2 = cabinX -leftWallThicknessPx- leftDistancePx  - 350 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
 context.moveTo(centerAxisLineX2, startY); // Start at the top edge
@@ -1741,13 +2089,20 @@ context.lineTo(centerAxisLineX2 + arrowSize / 2, centerY - arrowSize);
 context.lineTo(centerAxisLineX2, centerY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  centerY );
+context.lineTo(centerAxisLineX2 , centerY);
+context.stroke();
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX2 - 10, (startY + centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX2 -40*SCALE_FACTOR, (startY + centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   ` ${((centerY - startY) / SCALE_FACTOR).toFixed(0)} `,
@@ -1756,7 +2111,7 @@ context.fillText(
 );
 context.restore();
 // Vertical Center Axis Dimension Line
-const centerAxisLineX3= centerX- cabinWidthPx/2- railwallDistancePx- leftDistancePx  - 275 * SCALE_FACTOR; // Position right of the center axis
+const centerAxisLineX3= cabinX- leftDistancePx -leftWallThicknessPx - 350 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
 context.moveTo(centerAxisLineX3, startY+ innerDepthPx); // Start at the top edge
@@ -1779,13 +2134,26 @@ context.lineTo(centerAxisLineX3 + arrowSize / 2, centerY + arrowSize);
 context.lineTo(centerAxisLineX3, centerY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,startY);
+context.lineTo(centerAxisLineX3, startY);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,startY+innerDepthPx);
+context.lineTo(centerAxisLineX3, startY+innerDepthPx);
+context.stroke();
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX3 - 10, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX3 -40*SCALE_FACTOR, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   ` ${((  startY - centerY + innerDepthPx) / SCALE_FACTOR).toFixed(0)} `,
@@ -1793,6 +2161,8 @@ context.fillText(
   0
 );
 context.restore();
+
+
 const centerAxisLineX2EE= startX + innerWidthPx+rightWallThicknessPx+225 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
@@ -1805,7 +2175,7 @@ context.stroke();
 context.beginPath();
 context.moveTo(centerAxisLineX2EE - arrowSize / 2, startY - arrowSize + innerDepthPx - landingDoorHeightPx- doorGapPx-verticalOffset*SCALE_FACTOR);
 context.lineTo(centerAxisLineX2EE + arrowSize / 2, startY - arrowSize+ innerDepthPx - landingDoorHeightPx- doorGapPx-verticalOffset*SCALE_FACTOR);
-context.lineTo(centerAxisLineX2EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX2EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx - verticalOffset*SCALE_FACTOR);
 context.closePath();
 context.fill();
 
@@ -1816,16 +2186,29 @@ context.lineTo(centerAxisLineX2EE + arrowSize / 2, centerY + arrowSize);
 context.lineTo(centerAxisLineX2EE, centerY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+context.beginPath();
+context.moveTo(cabinX,centerY);
+context.lineTo(centerAxisLineX2EE, centerY);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,cabinY+cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX2EE, cabinY+cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
+
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX2EE + 8, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX2EE +40*SCALE_FACTOR, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
-  ` EE ${((  startY - centerY + innerDepthPx- landingDoorHeightPx- doorGapPx) / SCALE_FACTOR - verticalOffset).toFixed(0)} `,
+  ` EE ${((  startY - centerY + innerDepthPx - landingDoorHeightPx- doorGapPx) / SCALE_FACTOR -verticalOffset*SCALE_FACTOR/SCALE_FACTOR ).toFixed(0)} `,
   0,
   0
 );
@@ -1839,14 +2222,14 @@ context.lineWidth = 1;
 context.setLineDash([5, 5]); // Dashed line
 
 context.beginPath();
-context.moveTo(cabinX -leftDistancePx -leftWallThicknessPx -20, centerY); // Start at the left edge
-context.lineTo(cabinX + cabinWidthPx + railwallDistancePx + rightWallThicknessPx +20 , centerY); // Extend to the right edge
+context.moveTo(cabinX -leftDistancePx -leftWallThicknessPx -50*SCALE_FACTOR, centerY); // Start at the left edge
+context.lineTo(cabinX + cabinWidthPx + railwallDistancePx + rightWallThicknessPx +50*SCALE_FACTOR , centerY); // Extend to the right edge
 context.stroke();
 
 // Draw the center axis for depth
 context.beginPath();
-context.moveTo(centerX, cabinY - rearDistancePx - rearWallThicknessPx-20); // Start at the top edge
-context.lineTo(centerX, cabinY + cabinDepthPx+ frontDistancePx+frontWallThicknessPx+20); // Extend to the bottom edge
+context.moveTo(centerX, cabinY - rearDistancePx - rearWallThicknessPx-50*SCALE_FACTOR); // Start at the top edge
+context.lineTo(centerX, cabinY + cabinDepthPx+ frontDistancePx+frontWallThicknessPx+50*SCALE_FACTOR); // Extend to the bottom edge
 context.stroke();
 // Set line style for the center axis
 
@@ -1863,13 +2246,13 @@ context.setLineDash([]);
             cabinY = startY + railwallDistancePx;  // 300 mm from rear wall where rails are
             cabinDepthPx = innerDepthPx - railwallDistancePx - frontDistancePx;
             centerX = cabinX + cabinWidthPx / 2;
-            centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2+ carDoorHeightPx/2;
+            centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2+ carDoorHeightPx/2 -verticalOffset*SCALE_FACTOR/2;
 
             // Draw the center axis for width
 
             // Horizontal Dimension Line for Cabin Width
-const cabinWidthLineY2 = cabinY  - railwallDistancePx- rearWallThicknessPx- 200 * SCALE_FACTOR; // Below the cabin
-context.strokeStyle = 'green';
+const cabinWidthLineY2 = cabinY  - railwallDistancePx- rearWallThicknessPx- 225 * SCALE_FACTOR; // Below the cabin
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -1896,17 +2279,33 @@ context.lineTo(cabinX + cabinWidthPx- cabinWallThicknessPx, cabinWidthLineY2);
 context.closePath();
 context.fill();
 
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWallThicknessPx, cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWallThicknessPx, cabinWidthLineY2);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWidthPx - cabinWallThicknessPx, cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWidthPx - cabinWallThicknessPx, cabinWidthLineY2);
+context.stroke();
+
 // Label for cabin width
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(` CW ${(cabinWidthPx/ SCALE_FACTOR - cabinWallThicknessPx*2/SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, cabinWidthLineY2 - 10);
+context.fillText(` CW ${(cabinWidthPx/ SCALE_FACTOR - cabinWallThicknessPx*2/SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, cabinWidthLineY2 -40*SCALE_FACTOR);
 context.restore();
 
 // Vertical Dimension Line for Cabin Depth
 const cabinDepthLineX2 = cabinX + cabinWidthPx + rightDistancePx+ rightWallThicknessPx+ 100 * SCALE_FACTOR; // To the right of the cabin
-context.strokeStyle = 'green';
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -1932,21 +2331,36 @@ context.lineTo(cabinDepthLineX2 + arrowSize / 2, cabinY + cabinDepthPx - arrowSi
 context.lineTo(cabinDepthLineX2, cabinY + cabinDepthPx - cabinWallThicknessPx);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY+cabinWallThicknessPx );
+context.lineTo(cabinDepthLineX2 , cabinY+cabinWallThicknessPx);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY +cabinDepthPx - cabinWallThicknessPx);
+context.lineTo(cabinDepthLineX2  , cabinY+cabinDepthPx- cabinWallThicknessPx);
+context.stroke();
+
 
 // Label for cabin depth
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(cabinDepthLineX2 +8, cabinY + cabinDepthPx / 2); // Move to label position
+context.translate(cabinDepthLineX2 +40*SCALE_FACTOR, cabinY + cabinDepthPx / 2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` CD ${(cabinDepthPx  /SCALE_FACTOR  - cabinWallThicknessPx*2/SCALE_FACTOR).toFixed(0)} `, 0, 0);
 context.restore();
 
 
 // Horizontal Dimension Line for Cabin Width
-const PlatformLineY2 = cabinY  - railwallDistancePx- rearWallThicknessPx- 325 * SCALE_FACTOR; // Below the cabin
-context.strokeStyle = 'green';
+const PlatformLineY2 = cabinY  - railwallDistancePx- rearWallThicknessPx- 350 * SCALE_FACTOR; // Below the cabin
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -1972,25 +2386,40 @@ context.lineTo(cabinX + cabinWidthPx - arrowSize, PlatformLineY2 + arrowSize / 2
 context.lineTo(cabinX + cabinWidthPx, PlatformLineY2);
 context.closePath();
 context.fill();
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY );
+context.lineTo(cabinX , PlatformLineY2);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWidthPx , cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWidthPx , PlatformLineY2);
+context.stroke();
 
 // Label for cabin width
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(` PLW ${(cabinWidthPx / SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, PlatformLineY2 - 10);
+context.fillText(` PLW ${(cabinWidthPx / SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, PlatformLineY2 -40*SCALE_FACTOR);
 context.restore();
 
 // Vertical Dimension Line for Cabin Depth
 const PlatformLineX2 = cabinX + cabinWidthPx + rightDistancePx+ rightWallThicknessPx+ 225 * SCALE_FACTOR; // To the right of the cabin
-context.strokeStyle = 'green';
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
 context.moveTo(PlatformLineX2, cabinY); // Start at top edge of the cabin
-context.lineTo(PlatformLineX2, cabinY + cabinDepthPx + carDoorjambPx+ carDoorHeightPx); // End at bottom edge of the cabin
+context.lineTo(PlatformLineX2, cabinY + cabinDepthPx + carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
@@ -2004,26 +2433,39 @@ context.fill();
 
 // Bottom arrow
 context.beginPath();
-context.moveTo(PlatformLineX2 - arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx - arrowSize);
-context.lineTo(PlatformLineX2 + arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx - arrowSize);
-context.lineTo(PlatformLineX2, cabinY + cabinDepthPx + carDoorjambPx+ carDoorHeightPx);
+context.moveTo(PlatformLineX2 - arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx - arrowSize-verticalOffset*SCALE_FACTOR);
+context.lineTo(PlatformLineX2 + arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx - arrowSize-verticalOffset*SCALE_FACTOR);
+context.lineTo(PlatformLineX2, cabinY + cabinDepthPx + carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY );
+context.lineTo(PlatformLineX2 , cabinY);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY +cabinDepthPx +carDoorjambPx +landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(PlatformLineX2  , cabinY+cabinDepthPx +carDoorjambPx +landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
 
 // Label for cabin depth
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(PlatformLineX2 +8, cabinY + cabinDepthPx / 2); // Move to label position
+context.translate(PlatformLineX2 +40*SCALE_FACTOR, cabinY + cabinDepthPx / 2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
-context.fillText(` PLD ${(cabinDepthPx / SCALE_FACTOR + carDoorjambPx/SCALE_FACTOR+ carDoorHeightPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
+context.fillText(` PLD ${(cabinDepthPx / SCALE_FACTOR + carDoorjambPx/ SCALE_FACTOR+ carDoorHeightPx/SCALE_FACTOR  -verticalOffset*SCALE_FACTOR/SCALE_FACTOR).toFixed(0)} `, 0, 0);
 context.restore();
 
 
 
 // Right Distance Horizontal Dimension Line
-const rightDistanceLineY1 = startY - rearWallThicknessPx   - 325 * SCALE_FACTOR; // Position below the cabin
+const rightDistanceLineY1 = startY - rearWallThicknessPx   - 350 * SCALE_FACTOR; // Position below the cabin
 context.beginPath();
 context.moveTo(cabinX + cabinWidthPx, rightDistanceLineY1); // Start at the right edge of the cabin
 context.lineTo(cabinX + cabinWidthPx + rightDistancePx, rightDistanceLineY1); // End at the distance marker
@@ -2054,10 +2496,10 @@ context.textBaseline = 'middle';
 context.fillText(
   ` ${cabinSettings.rightDistance}`,
   cabinX + cabinWidthPx + rightDistancePx / 2,
-  rightDistanceLineY1 - 10
+  rightDistanceLineY1 -40*SCALE_FACTOR
 );
 context.restore();
-const leftDistanceLineY1 = startY - rearWallThicknessPx   - 325 * SCALE_FACTOR; // Position below the cabin
+const leftDistanceLineY1 = startY - rearWallThicknessPx   - 350 * SCALE_FACTOR; // Position below the cabin
 context.beginPath();
 context.moveTo(cabinX ,leftDistanceLineY1); // Start at the right edge of the cabin
 context.lineTo(cabinX  -leftDistancePx, leftDistanceLineY1); // End at the distance marker
@@ -2074,8 +2516,8 @@ context.fill();
 
 // Right arrow
 context.beginPath();
-context.moveTo(cabinX  - leftDistancePx - arrowSize, leftDistanceLineY1 - arrowSize / 2);
-context.lineTo(cabinX - leftDistancePx - arrowSize, leftDistanceLineY1 + arrowSize / 2);
+context.moveTo(cabinX  - leftDistancePx + arrowSize, leftDistanceLineY1 - arrowSize / 2);
+context.lineTo(cabinX - leftDistancePx + arrowSize, leftDistanceLineY1 + arrowSize / 2);
 context.lineTo(cabinX  - leftDistancePx, leftDistanceLineY1);
 context.closePath();
 context.fill();
@@ -2087,15 +2529,15 @@ context.textAlign = 'center';
 context.textBaseline = 'middle';
 context.fillText(
   ` ${cabinSettings.leftDistance}`,
-  cabinX  + leftDistancePx / 2,
-  leftDistanceLineY1- 10
+  cabinX  - leftDistancePx / 2,
+  leftDistanceLineY1-40*SCALE_FACTOR
 );
 context.restore();
 
 
 
 // Left Wall Thickness
-const leftWallThicknessLineY2 = startY - rearWallThicknessPx   - 200 * SCALE_FACTOR; // Below the cabin
+const leftWallThicknessLineY2 = startY - rearWallThicknessPx   - 225 * SCALE_FACTOR; // Below the cabin
 context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
@@ -2119,19 +2561,19 @@ context.lineTo(cabinX + cabinWallThicknessPx, leftWallThicknessLineY2 + perpendi
 context.stroke();
 // Left Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
 context.fillText(
   `${cabinSettings.wallThickness}`,
   cabinX + cabinWallThicknessPx / 2,
-  leftWallThicknessLineY2 - 10
+  leftWallThicknessLineY2 -40*SCALE_FACTOR
 );
 context.restore();
 
 
 // Left Wall Thickness
-const rightWallThicknessLineY2 = startY   - rearWallThicknessPx   - 200 * SCALE_FACTOR; // Below the cabin
+const rightWallThicknessLineY2 = startY   - rearWallThicknessPx   - 225 * SCALE_FACTOR; // Below the cabin
 context.beginPath();
 context.moveTo(cabinX + cabinWidthPx, rightWallThicknessLineY2); // Start at the bottom-left edge of the wall
 context.lineTo(cabinX +cabinWidthPx- cabinWallThicknessPx, rightWallThicknessLineY2); // Extend to the thickness
@@ -2152,13 +2594,13 @@ context.stroke();
 
 // Left Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
 context.fillText(
   `${cabinSettings.wallThickness}`,
   cabinX + cabinWidthPx- cabinWallThicknessPx / 2,
-  rightWallThicknessLineY2 - 10
+  rightWallThicknessLineY2 -40*SCALE_FACTOR
 );
 context.restore();
 // Top Cabin Wall Thickness
@@ -2182,10 +2624,10 @@ context.stroke();
 
 // Top Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(topWallThicknessLineX2 +8, cabinY + cabinWallThicknessPx / 2); // Adjust label position
+context.translate(topWallThicknessLineX2 +40*SCALE_FACTOR, cabinY + cabinWallThicknessPx / 2); // Adjust label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` ${cabinSettings.wallThickness}`, 0, 0);
 context.restore();
@@ -2219,10 +2661,10 @@ context.fill();
 
 // Label for cabin depth
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX8 +8, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx-cabinWallThicknessPx*2)/2); // Move to label position
+context.translate(carDepthLineX8 +40*SCALE_FACTOR, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx-cabinWallThicknessPx*2)/2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${(   carDoorjamb*SCALE_FACTOR/SCALE_FACTOR + carDoorHeightPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
@@ -2234,32 +2676,39 @@ context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
-context.moveTo(carDepthLineX9, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx ); // Start at top edge of the cabin
-context.lineTo(carDepthLineX9, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx); // End at bottom edge of the cabin
+context.moveTo(carDepthLineX9, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx-verticalOffset*SCALE_FACTOR ); // Start at top edge of the cabin
+context.lineTo(carDepthLineX9, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
 // Top arrow
 context.beginPath();
-context.moveTo(carDepthLineX9 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx);
-context.lineTo(carDepthLineX9 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx);
+context.moveTo(carDepthLineX9 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX9 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 
 
 // Bottom arrow
 context.beginPath();
-context.moveTo(carDepthLineX9 - perpendicularSize/2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx);
-context.lineTo(carDepthLineX9 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx);
+context.moveTo(carDepthLineX9 - perpendicularSize/2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX9 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR);
 
+context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx-verticalOffset*SCALE_FACTOR );
+context.lineTo(carDepthLineX9 , cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx-verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX9 +8, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx/2)/2); // Move to label position
+context.translate(carDepthLineX9 +40*SCALE_FACTOR, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx )- doorGapPx/2 -verticalOffset*SCALE_FACTOR); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${(  doorGapPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
@@ -2270,32 +2719,39 @@ context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
-context.moveTo(carDepthLineX10, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx+ doorGapPx ); // Start at top edge of the cabin
-context.lineTo(carDepthLineX10, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx + landingDoorHeightPx); // End at bottom edge of the cabin
+context.moveTo(carDepthLineX10, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx+ doorGapPx -verticalOffset*SCALE_FACTOR); // Start at top edge of the cabin
+context.lineTo(carDepthLineX10, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx + landingDoorHeightPx-verticalOffset*SCALE_FACTOR); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
 // Top arrow
 context.beginPath();
-context.moveTo(carDepthLineX10 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx+ doorGapPx);
-context.lineTo(carDepthLineX10 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx+ doorGapPx);
+context.moveTo(carDepthLineX10 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX10 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 
 
 // Bottom arrow
 context.beginPath();
-context.moveTo(carDepthLineX10 - perpendicularSize/2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx);
-context.lineTo(carDepthLineX10 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx);
+context.moveTo(carDepthLineX10 - perpendicularSize/2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX10 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
 
+context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx+landingDoorHeightPx-verticalOffset*SCALE_FACTOR );
+context.lineTo(carDepthLineX10 , cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX10 + 8, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx)); // Move to label position
+context.translate(carDepthLineX10 +40*SCALE_FACTOR, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx + doorGapPx)+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR)); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${( landingDoorHeightPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
@@ -2306,15 +2762,15 @@ context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
-context.moveTo(carDepthLineX11, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx  ); // Start at top edge of the cabin
+context.moveTo(carDepthLineX11, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx -verticalOffset*SCALE_FACTOR ); // Start at top edge of the cabin
 context.lineTo(carDepthLineX11, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx + doorGapPx + landingDoorHeightPx); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
 // Top arrow
 context.beginPath();
-context.moveTo(carDepthLineX11 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx);
-context.lineTo(carDepthLineX11 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx);
+context.moveTo(carDepthLineX11 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX11 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx -verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 
@@ -2328,17 +2784,17 @@ context.stroke();
 
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX11 -8, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx)); // Move to label position
+context.translate(carDepthLineX11 -40*SCALE_FACTOR, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx)); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
-context.fillText(`  ${( landingDoorHeightPx/ SCALE_FACTOR+ doorGapPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
+context.fillText(`  ${( landingDoorHeightPx/ SCALE_FACTOR+ doorGapPx/SCALE_FACTOR + verticalOffset*SCALE_FACTOR/SCALE_FACTOR).toFixed(0)} `, 0, 0);
 context.restore();
 
 
 // Horizontal Center Axis Dimension Line
-const centerAxisLineY4 = startY+ innerDepthPx + frontWallThicknessPx + 500 * SCALE_FACTOR; // Position below the center axis
+const centerAxisLineY4 = startY+ innerDepthPx + frontWallThicknessPx + 525 * SCALE_FACTOR; // Position below the center axis
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 context.beginPath();
@@ -2371,11 +2827,11 @@ context.textBaseline = 'middle';
 context.fillText(
   ` ${((centerX - startX) / SCALE_FACTOR).toFixed(0)} `,
   (startX + centerX) / 2,
-  centerAxisLineY4 - 8
+  centerAxisLineY4 -40*SCALE_FACTOR
 );
 context.restore();
 // Horizontal Center Axis Dimension Line
-const centerAxisLineY5 = startY+innerDepthPx+frontWallThicknessPx+500 * SCALE_FACTOR; // Position below the center axis
+const centerAxisLineY5 = startY+innerDepthPx+frontWallThicknessPx+525 * SCALE_FACTOR; // Position below the center axis
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 context.beginPath();
@@ -2399,6 +2855,27 @@ context.lineTo(centerX + arrowSize, centerAxisLineY5 + arrowSize / 2);
 context.lineTo(centerX, centerAxisLineY5);
 context.closePath();
 context.fill();
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(centerX,startY+innerDepthPx);
+context.lineTo(centerX, centerAxisLineY5);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+innerWidthPx,startY+innerDepthPx);
+context.lineTo(startX+innerWidthPx, centerAxisLineY5);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX,startY+innerDepthPx);
+context.lineTo(startX, centerAxisLineY5);
+context.stroke();
+
+
 
 // Horizontal Center Axis Label
 context.save();
@@ -2408,12 +2885,12 @@ context.textBaseline = 'middle';
 context.fillText(
   ` ${((startX -centerX  + innerWidthPx) / SCALE_FACTOR).toFixed(0)} `,
   (startX+ innerWidthPx + centerX) / 2,
-  centerAxisLineY5 - 10
+  centerAxisLineY5 -40*SCALE_FACTOR
 );
 context.restore();
 
 // Vertical Center Axis Dimension Line
-const centerAxisLineX4 = centerX- cabinWidthPx/2- railwallDistancePx- leftDistancePx  - 175 * SCALE_FACTOR; // Position right of the center axis
+const centerAxisLineX4 = cabinX- leftDistancePx -leftWallThicknessPx - 225 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
 context.moveTo(centerAxisLineX4, startY); // Start at the top edge
@@ -2436,13 +2913,26 @@ context.lineTo(centerAxisLineX4 + arrowSize / 2, centerY - arrowSize);
 context.lineTo(centerAxisLineX4, centerY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,startY);
+context.lineTo(centerAxisLineX4, startY);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,startY+innerDepthPx);
+context.lineTo(centerAxisLineX4, startY+innerDepthPx);
+context.stroke();
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX4 - 10, (startY + centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX4 -40*SCALE_FACTOR, (startY + centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   ` ${((centerY - startY) / SCALE_FACTOR).toFixed(0)} `,
@@ -2451,7 +2941,7 @@ context.fillText(
 );
 context.restore();
 // Vertical Center Axis Dimension Line
-const centerAxisLineX5= centerX- cabinWidthPx/2- railwallDistancePx- leftDistancePx  - 175 * SCALE_FACTOR; // Position right of the center axis
+const centerAxisLineX5= cabinX- leftDistancePx -leftWallThicknessPx - 225 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
 context.moveTo(centerAxisLineX5, startY+ innerDepthPx); // Start at the top edge
@@ -2474,13 +2964,21 @@ context.lineTo(centerAxisLineX5 + arrowSize / 2, centerY + arrowSize);
 context.lineTo(centerAxisLineX5, centerY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  centerY );
+context.lineTo(centerAxisLineX5 , centerY);
+context.stroke();
+
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX5 - 10, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX5 -40*SCALE_FACTOR, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   ` ${((  startY - centerY + innerDepthPx) / SCALE_FACTOR).toFixed(0)} `,
@@ -2491,16 +2989,16 @@ context.restore();
 const centerAxisLineX3EE= cabinX- leftDistancePx-leftWallThicknessPx  - 100 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
-context.moveTo(centerAxisLineX3EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx); // Start at the top edge
+context.moveTo(centerAxisLineX3EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx -verticalOffset*SCALE_FACTOR); // Start at the top edge
 context.lineTo(centerAxisLineX3EE, centerY); // End at the center
 context.stroke();
 
 // Vertical Center Axis Arrows
 // Top arrow
 context.beginPath();
-context.moveTo(centerAxisLineX3EE - arrowSize / 2, startY - arrowSize + innerDepthPx - landingDoorHeightPx- doorGapPx);
-context.lineTo(centerAxisLineX3EE + arrowSize / 2, startY - arrowSize+ innerDepthPx - landingDoorHeightPx- doorGapPx);
-context.lineTo(centerAxisLineX3EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx);
+context.moveTo(centerAxisLineX3EE - arrowSize / 2, startY - arrowSize + innerDepthPx - landingDoorHeightPx- doorGapPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX3EE + arrowSize / 2, startY - arrowSize+ innerDepthPx - landingDoorHeightPx- doorGapPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX3EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx-verticalOffset*SCALE_FACTOR);
 context.closePath();
 context.fill();
 
@@ -2511,16 +3009,25 @@ context.lineTo(centerAxisLineX3EE + arrowSize / 2, centerY + arrowSize);
 context.lineTo(centerAxisLineX3EE, centerY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,cabinY+cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX3EE, cabinY+cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
+
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX3EE - 8, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX3EE -40*SCALE_FACTOR, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
-  ` EE ${((  startY - centerY + innerDepthPx- landingDoorHeightPx- doorGapPx) / SCALE_FACTOR).toFixed(0)} `,
+  ` EE ${((  startY - centerY + innerDepthPx- landingDoorHeightPx- doorGapPx) / SCALE_FACTOR -(verticalOffset*SCALE_FACTOR/SCALE_FACTOR)).toFixed(0)} `,
   0,
   0
 );
@@ -2535,14 +3042,14 @@ context.lineWidth = 1;
 context.setLineDash([5, 5]); // Dashed line
 
 context.beginPath();
-context.moveTo(cabinX -leftDistancePx -leftWallThicknessPx -20, centerY); // Start at the left edge
-context.lineTo(cabinX + cabinWidthPx + rightDistancePx + rightWallThicknessPx +20 , centerY); // Extend to the right edge
+context.moveTo(cabinX -leftDistancePx -leftWallThicknessPx -50*SCALE_FACTOR, centerY); // Start at the left edge
+context.lineTo(cabinX + cabinWidthPx + rightDistancePx + rightWallThicknessPx +50*SCALE_FACTOR , centerY); // Extend to the right edge
 context.stroke();
 
 // Draw the center axis for depth
 context.beginPath();
-context.moveTo(centerX, cabinY - railwallDistancePx - rearWallThicknessPx -20); // Start at the top edge
-context.lineTo(centerX, cabinY + cabinDepthPx+ frontDistancePx+frontWallThicknessPx+20); // Extend to the bottom edge
+context.moveTo(centerX, cabinY - railwallDistancePx - rearWallThicknessPx -50*SCALE_FACTOR); // Start at the top edge
+context.lineTo(centerX, cabinY + cabinDepthPx+ frontDistancePx+frontWallThicknessPx+50*SCALE_FACTOR); // Extend to the bottom edge
 context.stroke();
 // Set line style for the center axis
 
@@ -2558,11 +3065,11 @@ context.setLineDash([]);
               cabinY = startY + rearDistancePx;  // 300 mm from rear wall where rails are
               cabinDepthPx = innerDepthPx -rearDistancePx - frontDistancePx;
               centerX = cabinX + cabinWidthPx / 2;
-            centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2;
+            centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2-verticalOffset*SCALE_FACTOR/2;
 
             // Horizontal Dimension Line for Cabin Width
 const cabinWidthLineY3 = cabinY  - rearDistancePx- rearWallThicknessPx- 100 * SCALE_FACTOR; // Below the cabin
-context.strokeStyle = 'green';
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -2589,17 +3096,33 @@ context.lineTo(cabinX + cabinWidthPx- cabinWallThicknessPx, cabinWidthLineY3);
 context.closePath();
 context.fill();
 
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWallThicknessPx, cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWallThicknessPx, cabinWidthLineY3);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWidthPx - cabinWallThicknessPx, cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWidthPx - cabinWallThicknessPx, cabinWidthLineY3);
+context.stroke();
+
 // Label for cabin width
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(` CW ${(cabinWidthPx/ SCALE_FACTOR - cabinWallThicknessPx*2/SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, cabinWidthLineY3 - 10);
+context.fillText(` CW ${(cabinWidthPx/ SCALE_FACTOR - cabinWallThicknessPx*2/SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, cabinWidthLineY3 -40*SCALE_FACTOR);
 context.restore();
 
 // Vertical Dimension Line for Cabin Depth
-const cabinDepthLineX3 = cabinX  + cabinWidthPx+ railwallDistancePx +rightWallThicknessPx+ 175 * SCALE_FACTOR; // To the right of the cabin
-context.strokeStyle = 'green';
+const cabinDepthLineX3 = cabinX  + cabinWidthPx+ railwallDistancePx +rightWallThicknessPx+ 100* SCALE_FACTOR; // To the right of the cabin
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -2625,13 +3148,28 @@ context.lineTo(cabinDepthLineX3 + arrowSize / 2, cabinY + cabinDepthPx - arrowSi
 context.lineTo(cabinDepthLineX3, cabinY + cabinDepthPx - cabinWallThicknessPx);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY+cabinWallThicknessPx );
+context.lineTo(cabinDepthLineX3 , cabinY+cabinWallThicknessPx);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY +cabinDepthPx - cabinWallThicknessPx);
+context.lineTo(cabinDepthLineX3  , cabinY+cabinDepthPx- cabinWallThicknessPx);
+context.stroke();
+
 
 // Label for cabin depth
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(cabinDepthLineX3 +8, cabinY + cabinDepthPx / 2); // Move to label position
+context.translate(cabinDepthLineX3 +40*SCALE_FACTOR, cabinY + cabinDepthPx / 2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` CD ${(cabinDepthPx  /SCALE_FACTOR  - cabinWallThicknessPx*2/SCALE_FACTOR).toFixed(0)} `, 0, 0);
 context.restore();
@@ -2639,7 +3177,7 @@ context.restore();
 
 // Horizontal Dimension Line for Cabin Width
 const PlatformLineY3 = cabinY  - rearDistancePx- rearWallThicknessPx- 225 * SCALE_FACTOR; // Below the cabin
-context.strokeStyle = 'green';
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
@@ -2666,24 +3204,39 @@ context.lineTo(cabinX + cabinWidthPx, PlatformLineY3);
 context.closePath();
 context.fill();
 
+// Use a thinner line for the perpendicular extension lines
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY );
+context.lineTo(cabinX , PlatformLineY3);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX + cabinWidthPx , cabinY + cabinWallThicknessPx);
+context.lineTo(cabinX + cabinWidthPx , PlatformLineY3);
+context.stroke();
 // Label for cabin width
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.fillText(` PLW ${(cabinWidthPx / SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, PlatformLineY3 - 10);
+context.fillText(` PLW ${(cabinWidthPx / SCALE_FACTOR ).toFixed(0)} `, cabinX + cabinWidthPx / 2, PlatformLineY3 -40*SCALE_FACTOR);
 context.restore();
 
 // Vertical Dimension Line for Cabin Depth
-const PlatformLineX3 = cabinX  + cabinWidthPx+ railwallDistancePx+ rightWallThicknessPx +275* SCALE_FACTOR;// To the right of the cabin
-context.strokeStyle = 'green';
+const PlatformLineX3 = cabinX  + cabinWidthPx+ railwallDistancePx+ rightWallThicknessPx +225* SCALE_FACTOR;// To the right of the cabin
+context.strokeStyle = 'black';
 context.fillStyle = 'black';
 context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
 context.moveTo(PlatformLineX3, cabinY); // Start at top edge of the cabin
-context.lineTo(PlatformLineX3, cabinY + cabinDepthPx + carDoorjambPx+ carDoorHeightPx); // End at bottom edge of the cabin
+context.lineTo(PlatformLineX3, cabinY + cabinDepthPx + carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
@@ -2697,24 +3250,38 @@ context.fill();
 
 // Bottom arrow
 context.beginPath();
-context.moveTo(PlatformLineX3 - arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx - arrowSize);
-context.lineTo(PlatformLineX3 + arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx - arrowSize);
-context.lineTo(PlatformLineX3, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx);
+context.moveTo(PlatformLineX3 - arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx - arrowSize-verticalOffset*SCALE_FACTOR);
+context.lineTo(PlatformLineX3 + arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx - arrowSize-verticalOffset*SCALE_FACTOR);
+context.lineTo(PlatformLineX3, cabinY + cabinDepthPx+ carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY );
+context.lineTo(PlatformLineX3 , cabinY);
+context.stroke();
+
+// Right perpendicular line
+context.beginPath();
+context.moveTo(cabinX , cabinY +cabinDepthPx +carDoorjambPx +landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(PlatformLineX3  , cabinY+cabinDepthPx +carDoorjambPx +landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
+
 
 // Label for cabin depth
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(PlatformLineX3 +8, cabinY + cabinDepthPx / 2); // Move to label position
+context.translate(PlatformLineX3 +40*SCALE_FACTOR, cabinY + cabinDepthPx / 2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` PLD ${(cabinDepthPx / SCALE_FACTOR+ carDoorjambPx/SCALE_FACTOR+ carDoorHeightPx/ SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
 
 // Rear Distance
-const rearDistanceLineX2 = startY +innerWidthPx+ rightWallThicknessPx+275 * SCALE_FACTOR; // Position left of the cabin
+const rearDistanceLineX2 = cabinX  + cabinWidthPx+ railwallDistancePx+ rightWallThicknessPx +225* SCALE_FACTOR; // Position left of the cabin
 context.beginPath();
 context.moveTo(rearDistanceLineX2, startY); // Start from top of the cabin
 context.lineTo(rearDistanceLineX2,  startY +rearDistancePx); // End at bottom of the cabin
@@ -2742,7 +3309,7 @@ context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(rearDistanceLineX2+8, startY+rearDistancePx/2); // Adjust label position
+context.translate(rearDistanceLineX2+40*SCALE_FACTOR, startY+rearDistancePx/2); // Adjust label position
 context.rotate(Math.PI / 2); // Rotate text for vertical orientation
 context.fillText(` ${cabinSettings.rearDistance}`, 0, 0);
 context.restore();
@@ -2774,12 +3341,13 @@ context.stroke();
 // Left Wall Thickness Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
+ 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
 context.fillText(
   `${cabinSettings.wallThickness}`,
   cabinX + cabinWallThicknessPx / 2,
-  railwallDistanceLineY1 - 10
+  railwallDistanceLineY1 -40*SCALE_FACTOR
 );
 context.restore();
 
@@ -2806,17 +3374,17 @@ context.stroke();
 
 // Left Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
 context.fillText(
   `${cabinSettings.wallThickness}`,
   cabinX + cabinWidthPx- cabinWallThicknessPx / 2,
-  rightWallThicknessLineY3 - 10
+  rightWallThicknessLineY3 -40*SCALE_FACTOR
 );
 context.restore();
 // Top Cabin Wall Thickness
-const topWallThicknessLineX3 = startX+ innerWidthPx+ rightWallThicknessPx + 175 * SCALE_FACTOR; // Position left of the cabin
+const topWallThicknessLineX3 = startX+ innerWidthPx+ rightWallThicknessPx + 100 * SCALE_FACTOR; // Position left of the cabin
 context.beginPath();
 context.moveTo(topWallThicknessLineX3, cabinY); // Start at the top of the cabin
 context.lineTo(topWallThicknessLineX3, cabinY + cabinWallThicknessPx); // End at the bottom of the top wall
@@ -2837,15 +3405,15 @@ context.stroke();
 
 // Top Wall Thickness Label
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(topWallThicknessLineX3 + 8, cabinY + cabinWallThicknessPx / 2); // Adjust label position
+context.translate(topWallThicknessLineX3 +40*SCALE_FACTOR, cabinY + cabinWallThicknessPx / 2); // Adjust label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(` ${cabinSettings.wallThickness}`, 0, 0);
 context.restore();
 // Horizontal Center Axis Dimension Line
-const centerAxisLineY6 = centerY - cabinDepthPx/2  - rearDistancePx- rearWallThicknessPx - 375 * SCALE_FACTOR; // Position below the center axis
+const centerAxisLineY6 = cabinY - rearDistancePx- rearWallThicknessPx - 350 * SCALE_FACTOR; // Position below the center axis
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 context.beginPath();
@@ -2882,22 +3450,16 @@ context.fillText(
 );
 context.restore();
 // Horizontal Center Axis Dimension Line
-const centerAxisLineY7 = centerY - cabinDepthPx/2  - rearDistancePx- rearWallThicknessPx - 375 * SCALE_FACTOR; // Position below the center axis
-context.strokeStyle = 'black';
-context.lineWidth = 1;
-context.beginPath();
-context.moveTo(startX + innerWidthPx, centerAxisLineY7); // Start at the left edge
-context.lineTo(centerX, centerAxisLineY7); // End at the center
-context.stroke();
 
-const carDepthLineX12 = cabinX + cabinWidthPx +railwallDistancePx+ rightWallThicknessPx+ 175* SCALE_FACTOR; // To the right of the cabin
+
+const carDepthLineX12 = cabinX + cabinWidthPx +railwallDistancePx+ rightWallThicknessPx+ 100* SCALE_FACTOR; // To the right of the cabin
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
 context.moveTo(carDepthLineX12, cabinY- cabinWallThicknessPx+ cabinDepthPx); // Start at top edge of the cabin
-context.lineTo(carDepthLineX12, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx); // End at bottom edge of the cabin
+context.lineTo(carDepthLineX12, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx-verticalOffset*SCALE_FACTOR); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
@@ -2911,91 +3473,105 @@ context.fill();
 
 // Bottom arrow
 context.beginPath();
-context.moveTo(carDepthLineX12 - arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx-arrowSize);
-context.lineTo(carDepthLineX12 + arrowSize / 2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx- arrowSize);
-context.lineTo(carDepthLineX12, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx);
+context.moveTo(carDepthLineX12 - arrowSize / 2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx-arrowSize-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX12 + arrowSize / 2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx- arrowSize-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX12, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.closePath();
 context.fill();
 
 // Label for cabin depth
 context.save();
-context.font = `${labelFontSize}px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX12 +8, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx-cabinWallThicknessPx*2)/2); // Move to label position
+context.translate(carDepthLineX12 +40*SCALE_FACTOR, cabinY + cabinDepthPx +( carDoorjambPx -cabinWallThicknessPx+carDoorHeightPx/2-verticalOffset*SCALE_FACTOR)); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${(   carDoorjamb*SCALE_FACTOR/SCALE_FACTOR + carDoorHeightPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
 
 
-const carDepthLineX13 = cabinX + cabinWidthPx + railwallDistancePx+ rightWallThicknessPx+ 275 * SCALE_FACTOR; // To the right of the cabin
+const carDepthLineX13 = cabinX + cabinWidthPx + railwallDistancePx+ rightWallThicknessPx+ 225 * SCALE_FACTOR; // To the right of the cabin
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
-context.moveTo(carDepthLineX13, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx ); // Start at top edge of the cabin
-context.lineTo(carDepthLineX13, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx); // End at bottom edge of the cabin
+context.moveTo(carDepthLineX13, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx-verticalOffset*SCALE_FACTOR ); // Start at top edge of the cabin
+context.lineTo(carDepthLineX13, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
 // Top arrow
 context.beginPath();
-context.moveTo(carDepthLineX13 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx);
-context.lineTo(carDepthLineX13 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx);
+context.moveTo(carDepthLineX13 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX13 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 
 
 // Bottom arrow
 context.beginPath();
-context.moveTo(carDepthLineX13 - perpendicularSize/2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx);
-context.lineTo(carDepthLineX13 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx);
+context.moveTo(carDepthLineX13 - perpendicularSize/2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX13 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR);
 
+context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx-verticalOffset*SCALE_FACTOR );
+context.lineTo(carDepthLineX13 , cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx-verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX13 +8, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx/2)/2); // Move to label position
+context.translate(carDepthLineX13 +40*SCALE_FACTOR, cabinY + cabinDepthPx +( carDoorjambPx +carDoorHeightPx- doorGapPx)-verticalOffset*SCALE_FACTOR); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${(  doorGapPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
 
-const carDepthLineX14 = cabinX + cabinWidthPx + railwallDistancePx+ rightWallThicknessPx+ 275 * SCALE_FACTOR; // To the right of the cabin
+const carDepthLineX14 = cabinX + cabinWidthPx + railwallDistancePx+ rightWallThicknessPx+ 225 * SCALE_FACTOR; // To the right of the cabin
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
-context.moveTo(carDepthLineX14, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx+ doorGapPx ); // Start at top edge of the cabin
-context.lineTo(carDepthLineX14, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx + landingDoorHeightPx); // End at bottom edge of the cabin
+context.moveTo(carDepthLineX14, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR ); // Start at top edge of the cabin
+context.lineTo(carDepthLineX14, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx + landingDoorHeightPx-verticalOffset*SCALE_FACTOR); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
 // Top arrow
 context.beginPath();
-context.moveTo(carDepthLineX14 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx+ doorGapPx);
-context.lineTo(carDepthLineX14 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx+ doorGapPx);
+context.moveTo(carDepthLineX14 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX14 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx+ doorGapPx-verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 
 
 // Bottom arrow
 context.beginPath();
-context.moveTo(carDepthLineX14 - perpendicularSize/2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx);
-context.lineTo(carDepthLineX14 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx);
+context.moveTo(carDepthLineX14 - perpendicularSize/2, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX14 + perpendicularSize/2,cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx+ doorGapPx+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
 
+context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx+landingDoorHeightPx-verticalOffset*SCALE_FACTOR );
+context.lineTo(carDepthLineX14 , cabinY+cabinDepthPx+carDoorjambPx+carDoorHeightPx+doorGapPx+ landingDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX14 + 8, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx)); // Move to label position
+context.translate(carDepthLineX14 +40*SCALE_FACTOR, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+ + doorGapPx)+ landingDoorHeightPx/2 -verticalOffset*SCALE_FACTOR)); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(`  ${( landingDoorHeightPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
 context.restore();
@@ -3006,15 +3582,15 @@ context.lineWidth = 1;
 
 // Dimension line for cabin depth
 context.beginPath();
-context.moveTo(carDepthLineX15, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx  ); // Start at top edge of the cabin
+context.moveTo(carDepthLineX15, cabinY+ cabinDepthPx + carDoorjambPx + carDoorHeightPx  -verticalOffset*SCALE_FACTOR); // Start at top edge of the cabin
 context.lineTo(carDepthLineX15, cabinY + cabinDepthPx+ carDoorjambPx + carDoorHeightPx + doorGapPx + landingDoorHeightPx); // End at bottom edge of the cabin
 context.stroke();
 
 // Arrows for cabin depth
 // Top arrow
 context.beginPath();
-context.moveTo(carDepthLineX15 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx);
-context.lineTo(carDepthLineX15 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx);
+context.moveTo(carDepthLineX15 - perpendicularSize / 2, cabinY+ cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(carDepthLineX15 + perpendicularSize / 2, cabinY+ cabinDepthPx+ carDoorjambPx+carDoorHeightPx-verticalOffset*SCALE_FACTOR);
 context.stroke();
 
 
@@ -3028,16 +3604,22 @@ context.stroke();
 
 // Label for cabin depth
 context.save();
-context.font = `10px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(carDepthLineX15 -8, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx)); // Move to label position
+context.translate(carDepthLineX15 -40*SCALE_FACTOR, cabinY + cabinDepthPx +( (carDoorjambPx +carDoorHeightPx+cabinWallThicknessPx*2 + doorGapPx)/2+ landingDoorHeightPx)); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
-context.fillText(`  ${( landingDoorHeightPx/ SCALE_FACTOR+ doorGapPx/SCALE_FACTOR ).toFixed(0)} `, 0, 0);
+context.fillText(`  ${( landingDoorHeightPx/ SCALE_FACTOR+ doorGapPx/SCALE_FACTOR +verticalOffset*SCALE_FACTOR /SCALE_FACTOR).toFixed(0)} `, 0, 0);
 context.restore();
 
 
-
+const centerAxisLineY7 = cabinY  - rearDistancePx- rearWallThicknessPx - 350 * SCALE_FACTOR; // Position below the center axis
+context.strokeStyle = 'black';
+context.lineWidth = 1;
+context.beginPath();
+context.moveTo(startX + innerWidthPx, centerAxisLineY7); // Start at the left edge
+context.lineTo(centerX, centerAxisLineY7); // End at the center
+context.stroke();
 // Horizontal Center Axis Arrows
 // Left arrow
 context.beginPath();
@@ -3054,6 +3636,14 @@ context.lineTo(centerX + arrowSize, centerAxisLineY7 + arrowSize / 2);
 context.lineTo(centerX, centerAxisLineY7);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(centerX,startY);
+context.lineTo(centerX, centerAxisLineY7);
+context.stroke();
 
 // Horizontal Center Axis Label
 context.save();
@@ -3063,12 +3653,12 @@ context.textBaseline = 'middle';
 context.fillText(
   ` ${((startX -centerX  + innerWidthPx) / SCALE_FACTOR).toFixed(0)} `,
   (startX+ innerWidthPx + centerX) / 2,
-  centerAxisLineY7 - 10
+  centerAxisLineY7 -40*SCALE_FACTOR
 );
 context.restore();
 
 // Vertical Center Axis Dimension Line
-const centerAxisLineX6 = centerX- cabinWidthPx/2- railwallDistancePx- leftDistancePx  - 375 * SCALE_FACTOR; // Position right of the center axis
+const centerAxisLineX6 = cabinX- railwallDistancePx- leftWallThicknessPx  - 350 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
 context.moveTo(centerAxisLineX6, startY); // Start at the top edge
@@ -3091,13 +3681,33 @@ context.lineTo(centerAxisLineX6 + arrowSize / 2, centerY - arrowSize);
 context.lineTo(centerAxisLineX6, centerY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,startY);
+context.lineTo(centerAxisLineX6, startY);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,startY+innerDepthPx);
+context.lineTo(centerAxisLineX6, startY+innerDepthPx);
+context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX ,  centerY );
+context.lineTo(centerAxisLineX6 , centerY);
+context.stroke();
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX6 - 10, (startY + centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX6 -40*SCALE_FACTOR, (startY + centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   ` ${((centerY - startY) / SCALE_FACTOR).toFixed(0)} `,
@@ -3106,7 +3716,7 @@ context.fillText(
 );
 context.restore();
 // Vertical Center Axis Dimension Line
-const centerAxisLineX7= centerX- cabinWidthPx/2- railwallDistancePx- leftDistancePx  - 375 * SCALE_FACTOR; // Position right of the center axis
+const centerAxisLineX7= cabinX- railwallDistancePx- leftWallThicknessPx  - 350 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
 context.moveTo(centerAxisLineX7, startY+ innerDepthPx); // Start at the top edge
@@ -3135,7 +3745,7 @@ context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX7 - 10, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX7 -40*SCALE_FACTOR, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   ` ${((  startY - centerY + innerDepthPx) / SCALE_FACTOR).toFixed(0)} `,
@@ -3146,16 +3756,16 @@ context.restore();
 const centerAxisLineX4EE= cabinX- railwallDistancePx - leftWallThicknessPx  - 225 * SCALE_FACTOR; // Position right of the center axis
 context.strokeStyle = 'black';
 context.beginPath();
-context.moveTo(centerAxisLineX4EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx); // Start at the top edge
+context.moveTo(centerAxisLineX4EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx -verticalOffset*SCALE_FACTOR); // Start at the top edge
 context.lineTo(centerAxisLineX4EE, centerY); // End at the center
 context.stroke();
 
 // Vertical Center Axis Arrows
 // Top arrow
 context.beginPath();
-context.moveTo(centerAxisLineX4EE - arrowSize / 2, startY - arrowSize + innerDepthPx - landingDoorHeightPx- doorGapPx);
-context.lineTo(centerAxisLineX4EE + arrowSize / 2, startY - arrowSize+ innerDepthPx - landingDoorHeightPx- doorGapPx);
-context.lineTo(centerAxisLineX4EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx);
+context.moveTo(centerAxisLineX4EE - arrowSize / 2, startY - arrowSize + innerDepthPx - landingDoorHeightPx- doorGapPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX4EE + arrowSize / 2, startY - arrowSize+ innerDepthPx - landingDoorHeightPx- doorGapPx -verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX4EE, startY+ innerDepthPx- landingDoorHeightPx- doorGapPx -verticalOffset*SCALE_FACTOR);
 context.closePath();
 context.fill();
 
@@ -3166,16 +3776,25 @@ context.lineTo(centerAxisLineX4EE + arrowSize / 2, centerY + arrowSize);
 context.lineTo(centerAxisLineX4EE, centerY);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(cabinX,cabinY+cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.lineTo(centerAxisLineX4EE, cabinY+cabinDepthPx+carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR);
+context.stroke();
+
 
 // Vertical Center Axis Label
 context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(centerAxisLineX4EE - 8, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
+context.translate(centerAxisLineX4EE -40*SCALE_FACTOR, (startY + innerDepthPx+ centerY) / 2); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
-  ` EE ${((  startY - centerY + innerDepthPx- landingDoorHeightPx- doorGapPx) / SCALE_FACTOR).toFixed(0)} `,
+  ` EE ${((   startY  + innerDepthPx -centerY -verticalOffset*SCALE_FACTOR-landingDoorHeightPx-doorGapPx) / SCALE_FACTOR).toFixed(0)} `,
   0,
   0
 );
@@ -3186,14 +3805,14 @@ context.lineWidth = 1;
 context.setLineDash([5, 5]); // Dashed line
 
 context.beginPath();
-context.moveTo(cabinX -railwallDistancePx -leftWallThicknessPx-20, centerY); // Start at the left edge
-context.lineTo(cabinX + cabinWidthPx + railwallDistancePx + rightWallThicknessPx+20 , centerY); // Extend to the right edge
+context.moveTo(cabinX -railwallDistancePx -leftWallThicknessPx-50*SCALE_FACTOR, centerY); // Start at the left edge
+context.lineTo(cabinX + cabinWidthPx + railwallDistancePx + rightWallThicknessPx+50*SCALE_FACTOR , centerY); // Extend to the right edge
 context.stroke();
 
 // Draw the center axis for depth
 context.beginPath();
-context.moveTo(centerX, cabinY - rearDistancePx - rearWallThicknessPx-20); // Start at the top edge
-context.lineTo(centerX, cabinY + cabinDepthPx+ frontDistancePx+frontWallThicknessPx+20); // Extend to the bottom edge
+context.moveTo(centerX, cabinY - rearDistancePx - rearWallThicknessPx-50*SCALE_FACTOR); // Start at the top edge
+context.lineTo(centerX, cabinY + cabinDepthPx+ frontDistancePx+frontWallThicknessPx+50*SCALE_FACTOR); // Extend to the bottom edge
 context.stroke();
 
 context.setLineDash([]);
@@ -3207,7 +3826,7 @@ context.setLineDash([]);
     const innerDepthWithoutWallsPx = cabinDepthPx - 2 * cabinWallThicknessPx;
 
     // Draw inner walls with 30 mm thickness
-    context.strokeStyle = 'green';
+    context.strokeStyle = 'black';
     context.strokeRect(
         cabinX + cabinWallThicknessPx,
         cabinY + cabinWallThicknessPx,
@@ -3218,7 +3837,7 @@ context.setLineDash([]);
     const carDoorTopY = cabinY + cabinDepthPx + carDoorjambPx - verticalOffset * SCALE_FACTOR ;
 
     // Draw the outer left and right walls, connecting to the top of the car door
-    context.strokeStyle = 'green';
+    context.strokeStyle = 'black';
 
     // Left outer wall, extending to the top of the car door
     context.beginPath();
@@ -3270,7 +3889,7 @@ context.lineTo(cabinX + cabinWidthPx, cabinY);
 context.stroke();
 
 context.lineWidth = 2;
-    context.strokeStyle = 'green';
+    context.strokeStyle = 'black';
 
 // Left entrance end vertical line
 context.beginPath();
@@ -3295,11 +3914,12 @@ context.setLineDash([5, 5]); // Dashed line
 
 // Reset the dash style
 context.setLineDash([]);
-const drawDoorWidthDimension = (context, startX, startY, DoorWidthPx, labelYOffset = 5) => {
+const drawDoorWidthDimension = (context, startX, startY, DoorWidthPx) => {
   // Define the y-coordinate for the dimension line
    startY=225;
-  const arrowSize = 5; // Size for the perpendicular lines
-  const dimensionY = startY +innerDepthPx+ frontWallThicknessPx+150*SCALE_FACTOR 
+   const fontSize = 72* SCALE_FACTOR;
+   const arrowSize = 32*SCALE_FACTOR; // Size for the perpendicular lines
+  const dimensionY =cabinY +cabinDepthPx+ frontDistancePx+frontWallThicknessPx+150*SCALE_FACTOR
 
   // Draw the main dimension line
   context.strokeStyle = "black";
@@ -3326,14 +3946,15 @@ const drawDoorWidthDimension = (context, startX, startY, DoorWidthPx, labelYOffs
   context.lineTo(startX -arrowSize+ DoorWidthPx, dimensionY + arrowSize / 2);
   context.closePath();
   context.fill();
+  
 
   // Add label for DoorWidthPx
-  context.font = "12px Arial";
+  context.font = `${fontSize}px Arial`;
   context.fillStyle = "black";
   context.fillText(
     `DW ${(DoorWidthPx / SCALE_FACTOR).toFixed(0)} `, // Convert back to millimeters for the label
-    startX + DoorWidthPx / 2 - 20,
-    dimensionY - labelYOffset
+    startX + DoorWidthPx / 2 -fontSize ,
+    dimensionY - 40*SCALE_FACTOR
   );
 };
 
@@ -3346,15 +3967,14 @@ const drawDimensionLinesWithLabels = (context, cabinX, cabinWidthPx, leftEntranc
   context.strokeStyle = 'black'; // Dimension line color
   context.lineWidth = 1;
 
-  const arrowSize = 3;
-  const labelOffset = 5; // Distance from the dimension line to the label
-  const fontSize = 12;
+  const arrowSize = 18 *SCALE_FACTOR;
+  const fontSize = 72*SCALE_FACTOR;
 
   context.font = `${fontSize}px Arial`;
   context.fillStyle = 'black'; // Label color
 
   // Left dimension line
-  const leftDimLineY = carDoorTopY - 20; // Slightly above the cabin wall
+  const leftDimLineY = carDoorTopY- carDoorjambPx-cabinWallThicknessPx -50*SCALE_FACTOR; // Slightly above the cabin wall
   context.beginPath();
   context.moveTo(cabinX+ cabinWallThicknessPx, leftDimLineY); // From the left cabin wall
   context.lineTo(leftEntranceEndX, leftDimLineY); // To leftEntranceEndX
@@ -3377,10 +3997,10 @@ const drawDimensionLinesWithLabels = (context, cabinX, cabinWidthPx, leftEntranc
   // Add label for left dimension
   const leftDistance = ((leftEntranceEndX - (cabinX+cabinWallThicknessPx)) / SCALE_FACTOR).toFixed(0); // Convert back to mm
   const leftLabelX = (cabinX+cabinWallThicknessPx + leftEntranceEndX) / 2; // Midpoint
-  context.fillText(`${leftDistance} `, leftLabelX - fontSize, leftDimLineY - labelOffset);
+  context.fillText(`${leftDistance} `, leftLabelX , leftDimLineY - 40*SCALE_FACTOR);
 
   // Right dimension line
-  const rightDimLineY = carDoorTopY - 20; // Slightly above the cabin wall
+  const rightDimLineY = carDoorTopY - carDoorjambPx-cabinWallThicknessPx -50*SCALE_FACTOR; // Slightly above the cabin wall
   context.beginPath();
   context.moveTo(cabinX + cabinWidthPx -cabinWallThicknessPx, rightDimLineY); // From the right cabin wall
   context.lineTo(rightEntranceEndX, rightDimLineY); // To rightEntranceEndX
@@ -3403,7 +4023,7 @@ const drawDimensionLinesWithLabels = (context, cabinX, cabinWidthPx, leftEntranc
   // Add label for right dimension
   const rightDistance = (( (cabinX + cabinWidthPx-cabinWallThicknessPx)- rightEntranceEndX) / SCALE_FACTOR).toFixed(0); // Convert back to mm
   const rightLabelX = ((cabinX + cabinWidthPx-cabinWallThicknessPx) + rightEntranceEndX) / 2; // Midpoint
-  context.fillText(`${rightDistance} `, rightLabelX - fontSize, rightDimLineY - labelOffset);
+  context.fillText(`${rightDistance} `, rightLabelX , rightDimLineY - 40 *SCALE_FACTOR);
 };
 
 // Use in your draw function
@@ -3466,13 +4086,22 @@ context.lineTo(leftOpeningX - arrowSize, leftDimensionY + arrowSize/2);
 context.closePath();
 context.fill();
 
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX,startY);
+context.lineTo(startX, leftDimensionY);
+context.stroke();
+
 // Draw text label
-context.font = '12px Arial';
+ 
 context.fillStyle = 'black';
 context.fillText(
   `${(Math.abs(leftOpeningX - leftInnerWallX) / SCALE_FACTOR).toFixed(0)} `,
-  (leftInnerWallX + leftOpeningX) / 2 - 10,
-  leftDimensionY - 5
+  (leftInnerWallX + leftOpeningX) / 2 ,
+  leftDimensionY - 40*SCALE_FACTOR
 );
 
 // Draw dimension lines between right inner wall and right wall opening line
@@ -3501,13 +4130,55 @@ context.lineTo(rightOpeningX + arrowSize, rightDimensionY - arrowSize/2);
 context.lineTo(rightOpeningX + arrowSize, rightDimensionY + arrowSize/2);
 context.closePath();
 context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo( rightInnerWallX,startY);
+context.lineTo( rightInnerWallX, rightDimensionY);
+context.stroke();
+
+
 
 // Draw text label
 context.fillText(
   `${(Math.abs(rightOpeningX - rightInnerWallX) / SCALE_FACTOR).toFixed(0)} ` ,
-  (rightInnerWallX + rightOpeningX) / 2 - 10,
-  rightDimensionY - 5
+  (rightInnerWallX + rightOpeningX) / 2 ,
+  rightDimensionY - 40*SCALE_FACTOR
 );
+const dimensionLineY = startY +innerDepthPx - carDoorHeightPx-doorGapPx-landingDoorHeightPx-carDoorjambPx-cabinWallThicknessPx-50*SCALE_FACTOR-verticalOffset*SCALE_FACTOR;
+ 
+
+    // Draw dimension line for wall opening offset
+    context.strokeStyle = 'black';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(centerX, dimensionLineY);
+    context.lineTo(centerX - wallOpeningOffset*SCALE_FACTOR, dimensionLineY);
+    context.stroke();
+
+    // Draw arrows
+    context.beginPath();
+    context.moveTo(centerX - wallOpeningOffset*SCALE_FACTOR + arrowSize/2, dimensionLineY - arrowSize / 2);
+    context.lineTo(centerX - wallOpeningOffset*SCALE_FACTOR + arrowSize/2, dimensionLineY + arrowSize / 2);
+    context.lineTo(centerX- wallOpeningOffset*SCALE_FACTOR, dimensionLineY);
+    context.closePath();
+    context.fill();
+
+    context.beginPath();
+    context.moveTo(centerX - arrowSize/2, dimensionLineY - arrowSize / 2);
+    context.lineTo(centerX - arrowSize/2, dimensionLineY + arrowSize / 2);
+    context.lineTo(centerX, dimensionLineY);
+    context.closePath();
+    context.fill();
+
+    // Label for wall opening offset
+    context.font = `${labelFontSize}px Arial`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(` ${wallOpeningOffset} `, centerX-wallOpeningOffset*SCALE_FACTOR/2 , dimensionLineY - 40 * SCALE_FACTOR);
+ 
 
 
 };
@@ -3614,7 +4285,7 @@ const drawTShapeWithFrame = (context, startX, startY, innerWidthPx, innerDepthPx
       cabinWidthPx = innerWidthPx - railwallDistancePx - rightDistancePx; // Add this
   
       const bracketX = startX;
-      const centerY = cabinY + cabinDepthPx / 2 + carDoorjambPx/2 + carDoorHeightPx/2;
+      const centerY = cabinY + cabinDepthPx / 2 + carDoorjambPx/2 + carDoorHeightPx/2 -verticalOffset*SCALE_FACTOR/2;
       const bracketY1 = centerY - railDistancePx / 2 - bracketHeightPx  + verticalOffsetYPx;
       const bracketY2 = centerY + railDistancePx / 2 + offsetYPx+ verticalOffsetYPx;
   
@@ -3639,8 +4310,8 @@ const drawTShapeWithFrame = (context, startX, startY, innerWidthPx, innerDepthPx
   
       // Draw rail distance vertical dimension
       const drawRailDistanceDimensionVertical = (context, railY1, railY2, railCenterX) => {
-        const arrowSize = 3.5; // Size of the arrows
-        const labelFontSize = 13; // Font size for the label
+         const arrowSize = 24*SCALE_FACTOR; // Size of the arrows
+        const labelFontSize = 72*SCALE_FACTOR; // Font size for the label
   
         // Adjusted positions to include arrow size
         const adjustedRailY1 = railY1 + verticalOffsetYPx+ tShapeHeightPx ;
@@ -3653,6 +4324,20 @@ const drawTShapeWithFrame = (context, startX, startY, innerWidthPx, innerDepthPx
         context.moveTo(railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR, adjustedRailY1 +arrowSize ); // Start after the arrow
         context.lineTo(railCenterX- cabinWidthPx/2-railwallDistancePx-leftWallThicknessPx -100*SCALE_FACTOR, adjustedRailY2- arrowSize); // End before the arrow
         context.stroke();
+        context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+offsetXPx,adjustedRailY1);
+context.lineTo(railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR, adjustedRailY1);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+offsetXPx,adjustedRailY2);
+context.lineTo(railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR, adjustedRailY2);
+context.stroke();
+
   
        
           // Draw the top arrow
@@ -3678,7 +4363,7 @@ const drawTShapeWithFrame = (context, startX, startY, innerWidthPx, innerDepthPx
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate( railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR - 40*SCALE_FACTOR ,  (railY1 + railY2) / 2 ); // Position next to dimension line
+context.translate( railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR -40*SCALE_FACTOR,  (railY1 + railY2) / 2 + verticalOffsetY*SCALE_FACTOR ); // Position next to dimension line
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   `DBG ${((railY2 - railY1) / SCALE_FACTOR - tShapeHeightPx*2/SCALE_FACTOR).toFixed(0)} `,
@@ -3694,12 +4379,13 @@ const tShapeTopY = railY1+ tShapeSettings.offsetY * SCALE_FACTOR + verticalOffse
 const tShapeBottomY = tShapeTopY + tShapeSettings.height * SCALE_FACTOR; // Bottom Y position of the T-shape
 const tShapeX = startX + tShapeSettings.offsetX * SCALE_FACTOR; // X position of the T-shape
 const dimensionLineOffset =  leftWallThicknessPx +100*SCALE_FACTOR + offsetXPx; // Offset for dimension lines
-const arrowSize = 3;
+const arrowSize = 24 *SCALE_FACTOR;
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 const tShapeTopY1 = railY2 + tShapeSettings.offsetY * SCALE_FACTOR+ verticalOffsetYPx; // Top Y position of the T-shape
 const tShapeBottomY1 = tShapeTopY1 - tShapeSettings.height * SCALE_FACTOR; // Bottom Y position of the T-shape
 const tShapeX1 = startX + tShapeSettings.offsetX * SCALE_FACTOR; // X position of the T-shape
+const labelFontSize = 72*SCALE_FACTOR;
 
 // Draw vertical dimension line
 context.beginPath();
@@ -3730,6 +4416,20 @@ context.lineTo(tShapeX1- dimensionLineOffset + arrowSize, tShapeTopY1);
 context.moveTo(tShapeX1 - dimensionLineOffset- arrowSize, tShapeBottomY1);
 context.lineTo(tShapeX1- dimensionLineOffset + arrowSize, tShapeBottomY1);
 context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+offsetXPx,tShapeTopY);
+context.lineTo(railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR, tShapeTopY);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+offsetXPx,tShapeTopY1);
+context.lineTo(railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR,tShapeTopY1);
+context.stroke();
+
 
 
 
@@ -3737,20 +4437,20 @@ context.stroke();
 // Add text label for height
 const tShapeHeight = tShapeSettings.height; // Height in mm
 context.save();
-context.font = `13px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(tShapeX - dimensionLineOffset - 10,
+context.translate(tShapeX - dimensionLineOffset - 40*SCALE_FACTOR,
 (tShapeTopY + tShapeBottomY) / 2 -2.5); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText( `${(tShapeHeight).toFixed(0)} `, 0, 0);
 context.restore();
  
 context.save();
-context.font = `13px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(tShapeX1 - dimensionLineOffset - 10,
+context.translate(tShapeX1 - dimensionLineOffset -40*SCALE_FACTOR,
 (tShapeTopY1 + tShapeBottomY1) / 2 -2.5); // Move to label position
 context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText( `${(tShapeHeight).toFixed(0)} `, 0, 0);
@@ -3816,15 +4516,16 @@ context.lineTo(dimensionLineX1 + arrowSize, shaftTopY1 - arrowSize);
 context.closePath();
 context.fill();
 
+
 // Add vertical text labels for the heights
-const drawVerticalHeightLabel = (context, startY, endY, dimensionLineX, scaleFactor, offsetX = -5) => {
+const drawVerticalHeightLabel = (context, startY, endY, dimensionLineX, scaleFactor) => {
   const distance = Math.abs(startY - endY) / scaleFactor; // Calculate distance in mm
   const midY = (startY + endY) / 2; // Vertical midpoint
 
   context.save(); // Save the context state
-  context.translate(dimensionLineX + offsetX, midY); // Move to the label position
+  context.translate(dimensionLineX-40 *SCALE_FACTOR , midY); // Move to the label position
   context.rotate(-Math.PI / 2); // Rotate text vertically
-  context.font = '13px Arial';
+   
   context.fillStyle = 'black';
   context.textAlign = 'center';
   context.fillText(`${distance.toFixed(0)} `, 0, 0); // Draw text
@@ -3837,8 +4538,43 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
 
   
       drawRailDistanceDimensionVertical(context, railY1, railY2, railCenterX);
-      
-      
+      const dimensionOffsetX = startX-50 *SCALE_FACTOR;
+  
+     
+
+    // Draw dimension line for wall opening offset
+    context.strokeStyle = 'black';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(dimensionOffsetX , centerY);
+    context.lineTo( dimensionOffsetX , centerY +verticalOffsetYPx);
+    context.stroke();
+
+    // Draw arrows
+    context.beginPath();
+    context.moveTo( dimensionOffsetX , centerY +verticalOffsetYPx );
+    context.lineTo(dimensionOffsetX - arrowSize / 2 , centerY +verticalOffsetYPx - arrowSize/2);
+    context.lineTo(dimensionOffsetX + arrowSize / 2 , centerY +verticalOffsetYPx - arrowSize/2);
+    context.closePath();
+    context.fill();
+
+    context.beginPath();
+    context.moveTo( dimensionOffsetX, centerY);
+    context.lineTo(dimensionOffsetX - arrowSize / 2 , centerY +arrowSize/2);
+    context.lineTo(dimensionOffsetX + arrowSize / 2 , centerY +arrowSize/2);
+    context.closePath();
+    context.fill();
+
+    context.save(); // Save the context state
+    context.translate(dimensionOffsetX-40 *SCALE_FACTOR , centerY+verticalOffsetYPx/2); // Move to the label position
+    context.rotate(-Math.PI / 2); // Rotate text vertically
+     
+    context.fillStyle = 'black';
+    context.textAlign = 'center';
+    context.fillText(`${Math.round(verticalOffsetY)}`, 0, 0);
+ // Draw text
+    context.restore(); // Restore the original context
+  
       
       break;
     }
@@ -3849,8 +4585,8 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
       cabinX = startX + leftDistancePx;
       cabinY = startY + rearDistancePx;
       cabinDepthPx = innerDepthPx - rearDistancePx - frontDistancePx;
-      const bracketX = startX + innerWidthPx  - bracketWidthPx + horizontalOffsetX;
-      const centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2;
+      const bracketX = startX + innerWidthPx  - bracketWidthPx ;
+      const centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2-verticalOffset*SCALE_FACTOR/2;
       const bracketY1 = centerY -railDistancePx/2-bracketHeightPx  + offsetYPx + verticalOffsetYPx;
       const bracketY2 = centerY+ railDistancePx/2 + offsetYPx+ verticalOffsetYPx ;
     
@@ -3864,54 +4600,65 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
      context.fillRect(bracketX, bracketY1, bracketWidthPx, bracketHeightPx);
      context.fillRect(bracketX, bracketY2, bracketWidthPx, bracketHeightPx);
 
-    // Draw rail distance vertical dimension
-    const railY1 = centerY - railDistancePx / 2 + offsetYPx;
-    const railY2 = centerY + railDistancePx / 2 + offsetYPx;
-    const railCenterX = cabinX + cabinWidthPx / 2;
+     const railY1 = centerY - railDistancePx / 2 + offsetYPx;
+     const railY2 = centerY + railDistancePx / 2 + offsetYPx;
+     const railCenterX = startX + innerWidthPx +rightWallThicknessPx+100*SCALE_FACTOR;
+ 
+       const drawRailDistanceDimensionVertical = (context, railY1, railY2, railCenterX) => {
+         const arrowSize = 24*SCALE_FACTOR; // Size of the arrows
+         const labelFontSize = 72*SCALE_FACTOR; // Font size for the label
+   
+         // Adjusted positions to include arrow size
+         const adjustedRailY1 = railY1  + tShapeHeightPx+verticalOffsetYPx;
+         const adjustedRailY2 = railY2  - tShapeHeightPx+verticalOffsetYPx ;
+   
+         // Draw the vertical dimension line
+         context.strokeStyle = 'black'; // Color for the dimension line
+         context.lineWidth = 1;
+         context.beginPath();
+         context.moveTo(railCenterX, adjustedRailY1); // Start after the arrow
+         context.lineTo(railCenterX, adjustedRailY2); // End before the arrow
+         context.stroke();
+   
+         // Draw the top arrow
+         context.beginPath();
+         context.moveTo(railCenterX -arrowSize ,adjustedRailY1+ arrowSize); // Left wing
+         context.lineTo(railCenterX + arrowSize , adjustedRailY1+ arrowSize); // Right wing
+         context.lineTo(railCenterX, adjustedRailY1 ); // Tip
+         context.closePath();
+         context.fillStyle = 'black';
+         context.fill();
+   
+         // Draw the bottom arrow
+         context.beginPath();
+         context.moveTo(railCenterX - arrowSize ,adjustedRailY2 - arrowSize); // Left wing
+         context.lineTo(railCenterX + arrowSize , adjustedRailY2- arrowSize); // Right wing
+         context.lineTo(railCenterX, adjustedRailY2  ); // Tip
+         context.closePath();
+         context.fill();
 
-      // Draw rail distance vertical dimension
-      const drawRailDistanceDimensionVertical = (context, railY1, railY2, railCenterX) => {
-        const arrowSize = 3.5; // Size of the arrows
-        const labelFontSize = 13; // Font size for the label
-  
-        // Adjusted positions to include arrow size
-        const adjustedRailY1 = railY1 - verticalOffsetYPx+ tShapeHeightPx ;
-        const adjustedRailY2 = railY2 - tShapeHeightPx - verticalOffsetYPx ;
-  
-        // Draw the vertical dimension line
-        context.strokeStyle = 'black'; // Color for the dimension line
-        context.lineWidth = 1;
-        context.beginPath();
-        context.moveTo(railCenterX -cabinWidthPx/2, adjustedRailY1 +arrowSize ); // Start after the arrow
-        context.lineTo(railCenterX- cabinWidthPx/2, adjustedRailY2- arrowSize); // End before the arrow
-        context.stroke();
-  
-       
-          // Draw the top arrow
-    context.beginPath();
-    context.moveTo(railCenterX -cabinWidthPx/2 - arrowSize, adjustedRailY1+ arrowSize); // Left wing
-    context.lineTo(railCenterX -cabinWidthPx/2+ arrowSize, adjustedRailY1+ arrowSize); // Right wing
-    context.lineTo(railCenterX -cabinWidthPx/2, adjustedRailY1 ); // Tip
-    context.closePath();
-    context.fillStyle = 'black';
-    context.fill();
-
-    // Draw the bottom arrow
-    context.beginPath();
-    context.moveTo(railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR  - arrowSize, adjustedRailY2- arrowSize); // Left wing
-    context.lineTo(railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR  + arrowSize, adjustedRailY2- arrowSize); // Right wing
-    context.lineTo(railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR , adjustedRailY2 ); // Tip
-    context.closePath();
-    context.fill();
-    
-  
-      
-      context.save();
+         
+         context.strokeStyle = 'grey'; // Dimension line color
+         context.lineWidth = 0.5;
+         
+         // Left perpendicular line
+         context.beginPath();
+         context.moveTo(startX+innerWidthPx+offsetXPx,adjustedRailY1);
+         context.lineTo(railCenterX , adjustedRailY1);
+         context.stroke();
+         // Left perpendicular line
+         context.beginPath();
+         context.moveTo(startX+innerWidthPx+offsetXPx,adjustedRailY2);
+         context.lineTo(railCenterX , adjustedRailY2);
+         context.stroke();
+         
+   
+         context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate( railCenterX -cabinWidthPx/2- railwallDistancePx-leftWallThicknessPx-100*SCALE_FACTOR - 40*SCALE_FACTOR ,  (railY1 + railY2) / 2 ); // Position next to dimension line
-context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
+context.translate( railCenterX + 40*SCALE_FACTOR,  (railY1 + railY2) / 2 +verticalOffsetYPx); // Position next to dimension line
+context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   `DBG ${((railY2 - railY1) / SCALE_FACTOR - tShapeHeightPx*2/SCALE_FACTOR).toFixed(0)} `,
   0,
@@ -3926,9 +4673,10 @@ const tShapeTopY = railY1 + tShapeSettings.offsetY * SCALE_FACTOR + verticalOffs
 const tShapeBottomY = tShapeTopY + tShapeSettings.height * SCALE_FACTOR; // Bottom Y position of the T-shape
 const tShapeX = startX+ innerWidthPx + rightWallThicknessPx+100*SCALE_FACTOR+ tShapeSettings.offsetX*SCALE_FACTOR ; // X position of the T-shape
 const dimensionLineOffset =  offsetXPx; // Offset for dimension lines
-const arrowSize = 3;
+const arrowSize = 24 *SCALE_FACTOR;
 context.strokeStyle = 'black';
 context.lineWidth = 1;
+const labelFontSize=72*SCALE_FACTOR;
 const tShapeTopY1 = railY2 + tShapeSettings.offsetY * SCALE_FACTOR+ verticalOffsetYPx; // Top Y position of the T-shape
 const tShapeBottomY1 = tShapeTopY1 - tShapeSettings.height * SCALE_FACTOR; // Bottom Y position of the T-shape
 const tShapeX1 = startX + innerWidthPx + rightWallThicknessPx+ 100*SCALE_FACTOR+ tShapeSettings.offsetX * SCALE_FACTOR; // X position of the T-shape
@@ -3963,26 +4711,39 @@ context.moveTo(tShapeX1 - dimensionLineOffset- arrowSize, tShapeBottomY1);
 context.lineTo(tShapeX1- dimensionLineOffset + arrowSize, tShapeBottomY1);
 context.stroke();
 
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+innerWidthPx+offsetXPx,tShapeTopY);
+context.lineTo(railCenterX , tShapeTopY);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+innerWidthPx+offsetXPx,tShapeTopY1);
+context.lineTo(railCenterX,tShapeTopY1);
+context.stroke();
 
 
 
 // Add text label for height
 const tShapeHeight = tShapeSettings.height; // Height in mm
 context.save();
-context.font = `13px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(tShapeX - dimensionLineOffset + 8,
+context.translate(tShapeX - dimensionLineOffset +40*SCALE_FACTOR,
 (tShapeTopY + tShapeBottomY) / 2); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText( `${(tShapeHeight).toFixed(0)} `, 0, 0);
 context.restore();
  
 context.save();
-context.font = `13px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(tShapeX1 - dimensionLineOffset +8,
+context.translate(tShapeX1 - dimensionLineOffset +40*SCALE_FACTOR,
 (tShapeTopY1 + tShapeBottomY1) / 2 ); // Move to label position
 context.rotate(Math.PI / 2); // Rotate text for vertical alignment
 context.fillText( `${(tShapeHeight).toFixed(0)} `, 0, 0);
@@ -4049,14 +4810,14 @@ context.closePath();
 context.fill();
 
 // Add vertical text labels for the heights
-const drawVerticalHeightLabel = (context, startY, endY, dimensionLineX, scaleFactor, offsetX = 5) => {
+const drawVerticalHeightLabel = (context, startY, endY, dimensionLineX, scaleFactor,) => {
   const distance = Math.abs(startY - endY) / scaleFactor; // Calculate distance in mm
   const midY = (startY + endY) / 2; // Vertical midpoint
 
   context.save(); // Save the context state
-  context.translate(dimensionLineX + offsetX, midY); // Move to the label position
+  context.translate(dimensionLineX + 20*SCALE_FACTOR, midY); // Move to the label position
   context.rotate(Math.PI / 2); // Rotate text vertically
-  context.font = '13px Arial';
+   
   context.fillStyle = 'black';
   context.textAlign = 'center';
   context.fillText(`${distance.toFixed(0)} `, 0, 0); // Draw text
@@ -4069,6 +4830,44 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
 
   
       drawRailDistanceDimensionVertical(context, railY1, railY2, railCenterX);
+      const dimensionOffsetX = startX+innerWidthPx+50 *SCALE_FACTOR;
+  
+     
+
+    // Draw dimension line for wall opening offset
+    context.strokeStyle = 'black';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(dimensionOffsetX , centerY);
+    context.lineTo( dimensionOffsetX , centerY +verticalOffsetYPx);
+    context.stroke();
+
+    // Draw arrows
+    context.beginPath();
+    context.moveTo( dimensionOffsetX , centerY +verticalOffsetYPx );
+    context.lineTo(dimensionOffsetX - arrowSize / 2 , centerY +verticalOffsetYPx - arrowSize/2);
+    context.lineTo(dimensionOffsetX + arrowSize / 2 , centerY +verticalOffsetYPx - arrowSize/2);
+    context.closePath();
+    context.fill();
+
+    context.beginPath();
+    context.moveTo( dimensionOffsetX, centerY);
+    context.lineTo(dimensionOffsetX - arrowSize / 2 , centerY +arrowSize/2);
+    context.lineTo(dimensionOffsetX + arrowSize / 2 , centerY +arrowSize/2);
+    context.closePath();
+    context.fill();
+
+    context.save(); // Save the context state
+    context.translate(dimensionOffsetX+40 *SCALE_FACTOR , centerY+verticalOffsetYPx/2); // Move to the label position
+    context.rotate(Math.PI / 2); // Rotate text vertically
+     
+    context.fillStyle = 'black';
+    context.textAlign = 'center';
+    context.fillText(`${Math.round(verticalOffsetY)}`, 0, 0);
+ // Draw text
+    context.restore(); // Restore the original context
+  
+      
       
       break;
     }
@@ -4079,7 +4878,7 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
       cabinY = startY + rearDistancePx;
       cabinDepthPx = innerDepthPx - rearDistancePx - frontDistancePx;
       cabinWidthPx = innerWidthPx - railwallDistancePx - railwallDistancePx;
-      const centerY = cabinY + cabinDepthPx / 2  + carDoorjambPx/2 + carDoorHeightPx/2;
+      const centerY = cabinY + cabinDepthPx / 2  + carDoorjambPx/2 + carDoorHeightPx/2 -verticalOffset*SCALE_FACTOR/2;
   
       // Left wall
       const leftBracketX = startX;
@@ -4106,28 +4905,28 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
     
      const railY1 = centerY - railDistancePx / 2 + offsetYPx;
      const railY2 = centerY + railDistancePx / 2 + offsetYPx;
-     const railCenterX = startX + innerWidthPx +rightWallThicknessPx+50*SCALE_FACTOR;
+     const railCenterX = startX -leftWallThicknessPx-100*SCALE_FACTOR;
  
        const drawRailDistanceDimensionVertical = (context, railY1, railY2, railCenterX) => {
-         const arrowSize = 5; // Size of the arrows
-         const labelFontSize = 13; // Font size for the label
+          const arrowSize = 32*SCALE_FACTOR; // Size of the arrows
+         const labelFontSize = 72*SCALE_FACTOR; // Font size for the label
    
          // Adjusted positions to include arrow size
-         const adjustedRailY1 = railY1  + tShapeHeightPx;
-         const adjustedRailY2 = railY2  - tShapeHeightPx ;
+         const adjustedRailY1 = railY1  + tShapeHeightPx+verticalOffsetYPx ;
+         const adjustedRailY2 = railY2  - tShapeHeightPx + verticalOffsetYPx;
    
          // Draw the vertical dimension line
          context.strokeStyle = 'black'; // Color for the dimension line
          context.lineWidth = 1;
          context.beginPath();
-         context.moveTo(railCenterX, adjustedRailY1); // Start after the arrow
+         context.moveTo(railCenterX, adjustedRailY1 ); // Start after the arrow
          context.lineTo(railCenterX, adjustedRailY2); // End before the arrow
          context.stroke();
    
          // Draw the top arrow
          context.beginPath();
-         context.moveTo(railCenterX -arrowSize / 2, railY1 + tShapeHeightPx+ arrowSize); // Left wing
-         context.lineTo(railCenterX + arrowSize / 2, railY1+tShapeHeightPx+ arrowSize); // Right wing
+         context.moveTo(railCenterX -arrowSize , adjustedRailY1 + arrowSize); // Left wing
+         context.lineTo(railCenterX + arrowSize , adjustedRailY1+arrowSize); // Right wing
          context.lineTo(railCenterX, adjustedRailY1 ); // Tip
          context.closePath();
          context.fillStyle = 'black';
@@ -4135,18 +4934,32 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
    
          // Draw the bottom arrow
          context.beginPath();
-         context.moveTo(railCenterX - arrowSize / 2, railY2-tShapeHeightPx - arrowSize); // Left wing
-         context.lineTo(railCenterX + arrowSize / 2, railY2-tShapeHeightPx- arrowSize); // Right wing
+         context.moveTo(railCenterX - arrowSize , adjustedRailY2 - arrowSize); // Left wing
+         context.lineTo(railCenterX + arrowSize , adjustedRailY2- arrowSize); // Right wing
          context.lineTo(railCenterX, adjustedRailY2  ); // Tip
          context.closePath();
          context.fill();
+         context.strokeStyle = 'grey'; // Dimension line color
+         context.lineWidth = 0.5;
+         
+         // Left perpendicular line
+         context.beginPath();
+         context.moveTo(startX+offsetXPx,adjustedRailY1);
+         context.lineTo(railCenterX , adjustedRailY1);
+         context.stroke();
+         // Left perpendicular line
+         context.beginPath();
+         context.moveTo(startX+offsetXPx,adjustedRailY2);
+         context.lineTo(railCenterX , adjustedRailY2);
+         context.stroke();
+         
    
          context.save();
 context.font = `${labelFontSize}px Arial`;
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate( railCenterX +8,  (railY1 + railY2) / 2 ); // Position next to dimension line
-context.rotate(Math.PI / 2); // Rotate text for vertical alignment
+context.translate( railCenterX -40*SCALE_FACTOR,  (railY1 + railY2) / 2 ); // Position next to dimension line
+context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText(
   `DBG ${((railY2 - railY1) / SCALE_FACTOR - tShapeHeightPx*2/SCALE_FACTOR).toFixed(0)} `,
   0,
@@ -4158,14 +4971,15 @@ context.restore();
        // Draw dimension lines for T-shaped rail height
 const tShapeTopY = railY1 + tShapeSettings.offsetY * SCALE_FACTOR + verticalOffsetYPx; // Top Y position of the T-shape
 const tShapeBottomY = tShapeTopY + tShapeSettings.height * SCALE_FACTOR; // Bottom Y position of the T-shape
-const tShapeX = startX+ innerWidthPx + rightWallThicknessPx+50*SCALE_FACTOR+ tShapeSettings.offsetX*SCALE_FACTOR ; // X position of the T-shape
+const tShapeX = startX-leftWallThicknessPx-100*SCALE_FACTOR+ tShapeSettings.offsetX * SCALE_FACTOR;
 const dimensionLineOffset =  offsetXPx; // Offset for dimension lines
-const arrowSize = 3;
+const arrowSize = 24 *SCALE_FACTOR;
 context.strokeStyle = 'black';
 context.lineWidth = 1;
 const tShapeTopY1 = railY2 + tShapeSettings.offsetY * SCALE_FACTOR+ verticalOffsetYPx; // Top Y position of the T-shape
 const tShapeBottomY1 = tShapeTopY1 - tShapeSettings.height * SCALE_FACTOR; // Bottom Y position of the T-shape
-const tShapeX1 = startX + innerWidthPx + rightWallThicknessPx+ 50*SCALE_FACTOR+ tShapeSettings.offsetX * SCALE_FACTOR; // X position of the T-shape
+const tShapeX1 = startX -leftWallThicknessPx-100*SCALE_FACTOR+ tShapeSettings.offsetX * SCALE_FACTOR; // X position of the T-shape
+const labelFontSize = 72*SCALE_FACTOR;
 
 // Draw vertical dimension line
 context.beginPath();
@@ -4196,6 +5010,19 @@ context.lineTo(tShapeX1- dimensionLineOffset + arrowSize, tShapeTopY1);
 context.moveTo(tShapeX1 - dimensionLineOffset- arrowSize, tShapeBottomY1);
 context.lineTo(tShapeX1- dimensionLineOffset + arrowSize, tShapeBottomY1);
 context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+offsetXPx,tShapeTopY);
+context.lineTo(railCenterX , tShapeTopY);
+context.stroke();
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+offsetXPx,tShapeTopY1);
+context.lineTo(railCenterX ,tShapeTopY1);
+context.stroke();
 
 
 
@@ -4203,29 +5030,29 @@ context.stroke();
 // Add text label for height
 const tShapeHeight = tShapeSettings.height; // Height in mm
 context.save();
-context.font = `13px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(tShapeX - dimensionLineOffset + 8,
+context.translate(tShapeX - dimensionLineOffset -40*SCALE_FACTOR,
 (tShapeTopY + tShapeBottomY) / 2); // Move to label position
-context.rotate(Math.PI / 2); // Rotate text for vertical alignment
+context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText( `${(tShapeHeight).toFixed(0)} `, 0, 0);
 context.restore();
  
 context.save();
-context.font = `13px Arial`;
+context.font = `${labelFontSize}px Arial`; 
 context.textAlign = 'center';
 context.textBaseline = 'middle';
-context.translate(tShapeX1 - dimensionLineOffset +8,
+context.translate(tShapeX1 - dimensionLineOffset -40*SCALE_FACTOR,
 (tShapeTopY1 + tShapeBottomY1) / 2 ); // Move to label position
-context.rotate(Math.PI / 2); // Rotate text for vertical alignment
+context.rotate(-Math.PI / 2); // Rotate text for vertical alignment
 context.fillText( `${(tShapeHeight).toFixed(0)} `, 0, 0);
 context.restore();
  
 // Dimension line from top of T-shaped rail to inner shaft top wall
 const railTopY = railY1 + verticalOffsetYPx; // Top Y position of the T-shaped rail
 const shaftTopY = startY; // Y position of the inner shaft's top wall
-const dimensionLineX = startX+ innerWidthPx + rightWallThicknessPx + 50 * SCALE_FACTOR; // X position for the dimension line
+const dimensionLineX = startX-leftWallThicknessPx-100*SCALE_FACTOR+ tShapeSettings.offsetX * SCALE_FACTOR; // X position for the dimension line
 
 // Draw the first dimension line
 context.strokeStyle = 'black';
@@ -4257,7 +5084,7 @@ context.fill();
 // Dimension line from the top of the second T-shaped rail to the shaft
 const railTopY1 = railY2 + verticalOffsetYPx; // Top Y position of the second T-shaped rail
 const shaftTopY1 = startY + innerDepthPx; // Y position of the inner shaft's bottom wall
-const dimensionLineX1 = startX + innerWidthPx+ rightWallThicknessPx + 50 * SCALE_FACTOR; // X position for the second dimension line
+const dimensionLineX1 = startX -leftWallThicknessPx-100*SCALE_FACTOR+ tShapeSettings.offsetX * SCALE_FACTOR; // X position for the second dimension line
 
 // Draw the second dimension line
 context.beginPath();
@@ -4283,17 +5110,17 @@ context.closePath();
 context.fill();
 
 // Add vertical text labels for the heights
-const drawVerticalHeightLabel = (context, startY, endY, dimensionLineX, scaleFactor, offsetX = 5) => {
+const drawVerticalHeightLabel = (context, startY, endY, dimensionLineX, scaleFactor) => {
   const distance = Math.abs(startY - endY) / scaleFactor; // Calculate distance in mm
   const midY = (startY + endY) / 2; // Vertical midpoint
 
   context.save(); // Save the context state
-  context.translate(dimensionLineX + offsetX, midY); // Move to the label position
-  context.rotate(Math.PI / 2); // Rotate text vertically
-  context.font = '13px Arial';
+  context.translate(dimensionLineX +20*SCALE_FACTOR, midY); // Move to the label position
+  context.rotate(-Math.PI / 2); // Rotate text vertically
+   
   context.fillStyle = 'black';
   context.textAlign = 'center';
-  context.fillText(`${distance.toFixed(0)} `, 0, 0); // Draw text
+  context.fillText(`${distance.toFixed(0)} `, 0, -40*SCALE_FACTOR); // Draw text
   context.restore(); // Restore the original context
 };
 
@@ -4303,6 +5130,49 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
 
   
       drawRailDistanceDimensionVertical(context, railY1, railY2, railCenterX);
+      const dimensionOffsetX = startX-50 *SCALE_FACTOR;
+     
+  
+     
+
+    // Draw dimension line for wall opening offset
+    context.strokeStyle = 'black';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(dimensionOffsetX , centerY);
+    context.lineTo( dimensionOffsetX , centerY +verticalOffsetYPx);
+    context.stroke();
+
+    // Draw arrows
+    context.beginPath();
+    context.moveTo( dimensionOffsetX , centerY +verticalOffsetYPx );
+    context.lineTo(dimensionOffsetX - arrowSize / 2 , centerY +verticalOffsetYPx - arrowSize/2);
+    context.lineTo(dimensionOffsetX + arrowSize / 2 , centerY +verticalOffsetYPx - arrowSize/2);
+    context.closePath();
+    context.fill();
+
+    context.beginPath();
+    context.moveTo( dimensionOffsetX, centerY);
+    context.lineTo(dimensionOffsetX - arrowSize / 2 , centerY +arrowSize/2);
+    context.lineTo(dimensionOffsetX + arrowSize / 2 , centerY +arrowSize/2);
+    context.closePath();
+    context.fill();
+
+    context.save(); // Save the context state
+    context.translate(dimensionOffsetX-40 *SCALE_FACTOR , centerY+verticalOffsetYPx/2); // Move to the label position
+    context.rotate(-Math.PI / 2); // Rotate text vertically
+     
+    context.fillStyle = 'black';
+    context.textAlign = 'center';
+    context.fillText(`${Math.round(verticalOffsetY)}`, 0, 0);
+ // Draw text
+    context.restore(); // Restore the original context
+  
+      
+      
+
+
+      
   
        break;
     }
@@ -4317,6 +5187,8 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
       const centerY = cabinY + cabinWidthPx / 2; 
       const bracketY = startY   ;
       const railCenterY = centerY;
+
+      
       const bracketX1 = centerX - railDistancePx / 2 -bracketHeightPx  + horizontalOffsetXPx;
       const bracketX2 = centerX + railDistancePx / 2   + horizontalOffsetXPx;
   
@@ -4330,13 +5202,13 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
   context.fillRect(bracketX2, bracketY, bracketHeightPx, bracketWidthPx);
 
   const drawRailDistanceDimension = (context, railX1, railX2, railCenterY) => {
-    const arrowSize = 5; // Size of the arrows
-    const labelFontSize = 13; // Font size for the label
+     const arrowSize = 32*SCALE_FACTOR; // Size of the arrows
+    const labelFontSize = 72*SCALE_FACTOR; // Font size for the label
 
     // Calculate the adjusted rail positions to include arrows
     const adjustedRailX1 = railX1  + tShapeHeightPx  ;
     const adjustedRailX2 = railX2 -tShapeHeightPx ;
-    const dimLineY = startY - rearWallThicknessPx-75*SCALE_FACTOR;
+    const dimLineY = startY - rearWallThicknessPx-100*SCALE_FACTOR;
     // Draw the dimension line
     context.strokeStyle = 'black'; // Color for the dimension line
     context.lineWidth = 1;
@@ -4360,6 +5232,20 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
    context.lineTo(adjustedRailX2 - arrowSize, dimLineY + arrowSize / 2); // Right wing
    context.closePath();
    context.fill();
+   context.strokeStyle = 'grey'; // Dimension line color
+   context.lineWidth = 0.5;
+   
+   // Left perpendicular line
+   context.beginPath();
+   context.moveTo(adjustedRailX1,startY+offsetYPx);
+   context.lineTo(adjustedRailX1 ,dimLineY);
+   context.stroke();
+   // Left perpendicular line
+   context.beginPath();
+   context.moveTo(adjustedRailX2,startY+offsetYPx);
+   context.lineTo(adjustedRailX2, dimLineY);
+   context.stroke();
+   
 
     // Draw the label
     context.save();
@@ -4370,16 +5256,16 @@ drawVerticalHeightLabel(context, shaftTopY1, railTopY1, dimensionLineX1, SCALE_F
     context.fillText(
         `DBG ${((railX2 - railX1) / SCALE_FACTOR- tShapeHeightPx*2/SCALE_FACTOR).toFixed(0)} ` ,
         (railX1 + railX2) / 2 ,
-        railCenterY/2-rearWallThicknessPx - arrowSize - 3 // Position above the dimension line
+        startY- rearWallThicknessPx-100*SCALE_FACTOR-40*SCALE_FACTOR// Position above the dimension line
     );
     context.restore();
 };
 // Horizontal Dimension for T-shaped Rail Height
-const tRailHeightLineY = startY - rearWallThicknessPx - 75 * SCALE_FACTOR; // Above the rear wall
+const tRailHeightLineY = startY - rearWallThicknessPx - 100 * SCALE_FACTOR; // Above the rear wall
 const railX1Adjusted = railX1 ; // Left rail start position
 const railX2Adjusted = railX2; // Right rail start position
-const perpendicularSize = 5;
-const arrowSize = 5;
+const perpendicularSize = 32 *SCALE_FACTOR;
+ const arrowSize = 32*SCALE_FACTOR;
 
 // Dimension line for the left T-shaped rail height
 context.strokeStyle = 'black';;
@@ -4399,15 +5285,23 @@ context.stroke();
 context.moveTo(railX1Adjusted + tShapeHeightPx, tRailHeightLineY - perpendicularSize / 2);
 context.lineTo(railX1Adjusted + tShapeHeightPx, tRailHeightLineY + perpendicularSize / 2);
 context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(railX1Adjusted,startY+offsetYPx);
+context.lineTo(railX1Adjusted ,tRailHeightLineY);
+context.stroke();
+
 
 // Label for the left T-shaped rail height
 context.save();
-context.font = '12px Arial';
 context.textAlign = 'center';
 context.fillText(
   `${tShapeSettings.height.toFixed(0)}`,
   railX1Adjusted + tShapeHeightPx / 2,
-  tRailHeightLineY - 8
+  tRailHeightLineY -20*SCALE_FACTOR
 );
 context.restore();
 
@@ -4427,98 +5321,149 @@ context.stroke();
 context.moveTo(railX2Adjusted - tShapeHeightPx, tRailHeightLineY - perpendicularSize / 2);
 context.lineTo(railX2Adjusted - tShapeHeightPx, tRailHeightLineY + perpendicularSize / 2);
 context.stroke();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(railX2Adjusted,startY+offsetYPx);
+context.lineTo(railX2Adjusted ,tRailHeightLineY);
+context.stroke();
 
 // Label for the right T-shaped rail height
 context.save();
-context.font = '12px Arial';
 context.textAlign = 'center';
 context.fillText(
   `${tShapeSettings.height.toFixed(0)}`,
   railX2Adjusted - tShapeHeightPx / 2,
-  tRailHeightLineY - 8
+  tRailHeightLineY -20*SCALE_FACTOR
 );
 context.restore();
 
-// Horizontal Dimension for Inner Wall to Left T-shaped Rail Distance
-const wallToRailLineY = startY - rearWallThicknessPx - 75 * SCALE_FACTOR; // Below the rail height dimension
-const innerWallToRailX = cabinX -leftDistancePx; // Inner wall position
+// Dimension line from top of T-shaped rail to inner shaft top wall
+const railLeftX = railX1 ; // Top Y position of the T-shaped rail
+const shaftLeftY = startX; // Y position of the inner shaft's top wall
+const dimensionLineY = startY-rearWallThicknessPx-100*SCALE_FACTOR; // X position for the dimension line
 
-// Draw dimension line
+// Draw the first dimension line
+context.strokeStyle = 'black';
+context.lineWidth = 1;
+
 context.beginPath();
-context.moveTo(innerWallToRailX, wallToRailLineY); // Start at inner wall
-context.lineTo(railX1Adjusted, wallToRailLineY); // End at T-shaped rail
+context.moveTo(shaftLeftY,dimensionLineY );
+context.lineTo( railLeftX ,dimensionLineY);
 context.stroke();
 
-// Arrows for the inner wall to rail distance
+// Draw arrowheads at both ends
 context.beginPath();
-// Left arrow
-context.moveTo(innerWallToRailX + arrowSize, wallToRailLineY - arrowSize / 2);
-context.lineTo(innerWallToRailX + arrowSize, wallToRailLineY + arrowSize / 2);
-context.lineTo(innerWallToRailX, wallToRailLineY);
+// Arrow at the top (inner shaft top wall)
+context.moveTo(shaftLeftY + arrowSize ,dimensionLineY + arrowSize/2);
+context.lineTo(shaftLeftY + arrowSize,dimensionLineY - arrowSize/2);
+context.lineTo(shaftLeftY  ,dimensionLineY  );
+context.closePath();
+context.fillStyle = 'black';
+context.fill();
+
+// Arrow at the bottom (rail top)
+context.beginPath();
+context.moveTo(railLeftX - arrowSize ,dimensionLineY + arrowSize/2);
+context.lineTo(railLeftX - arrowSize,dimensionLineY - arrowSize/2);
+context.lineTo(railLeftX  ,dimensionLineY  );
 context.closePath();
 context.fill();
 
-// Right arrow
+// Dimension line from the top of the second T-shaped rail to the shaft
+// Dimension line from top of T-shaped rail to inner shaft top wall
+const railLeftX1 = railX2 ; // Top Y position of the T-shaped rail
+const shaftLeftY1 = startX + innerWidthPx; // Y position of the inner shaft's top wall
+const dimensionLineY1 = startY-rearWallThicknessPx-100*SCALE_FACTOR ; // X position for the dimension line
+
+// Draw the first dimension line
+context.strokeStyle = 'black';
+context.lineWidth = 1;
+
 context.beginPath();
-context.moveTo(railX1Adjusted - arrowSize, wallToRailLineY - arrowSize / 2);
-context.lineTo(railX1Adjusted - arrowSize, wallToRailLineY + arrowSize / 2);
-context.lineTo(railX1Adjusted, wallToRailLineY);
-context.closePath();
-context.fill();
-
-// Label for the inner wall to left rail distance
-context.save();
-context.font = '13px Arial';
-context.textAlign = 'center';
-context.fillText(
-  `${(railX1Adjusted - innerWallToRailX).toFixed(0)}`,
-  (innerWallToRailX + railX1Adjusted) / 2,
-  wallToRailLineY - 8
-);
-context.restore();
-
-// Horizontal Dimension for Inner Wall to Right T-shaped Rail Distance
-const wallToRailLineY1 = startY - rearWallThicknessPx - 75* SCALE_FACTOR; // Below the first distance dimension
-const innerWallToRailX1 = startX + innerWidthPx; // Inner right wall position
-
-// Draw dimension line
-context.beginPath();
-context.moveTo(railX2Adjusted, wallToRailLineY1); // Start at T-shaped rail
-context.lineTo(innerWallToRailX1, wallToRailLineY1); // End at inner wall
+context.moveTo(shaftLeftY1,dimensionLineY1 );
+context.lineTo( railLeftX1 ,dimensionLineY1);
 context.stroke();
 
-// Arrows for the inner wall to right rail distance
+// Draw arrowheads at both ends
 context.beginPath();
-// Left arrow
-context.moveTo(railX2Adjusted + arrowSize, wallToRailLineY1 - arrowSize / 2);
-context.lineTo(railX2Adjusted + arrowSize, wallToRailLineY1 + arrowSize / 2);
-context.lineTo(railX2Adjusted, wallToRailLineY1);
+// Arrow at the top (inner shaft top wall)
+context.moveTo(shaftLeftY1 - arrowSize ,dimensionLineY1 + arrowSize/2);
+context.lineTo(shaftLeftY1 - arrowSize,dimensionLineY1 - arrowSize/2);
+context.lineTo(shaftLeftY1  ,dimensionLineY1  );
+context.closePath();
+context.fillStyle = 'black';
+context.fill();
+
+// Arrow at the bottom (rail top)
+context.beginPath();
+context.moveTo(railLeftX1 + arrowSize ,dimensionLineY1 + arrowSize/2);
+context.lineTo(railLeftX1 + arrowSize,dimensionLineY1 - arrowSize/2);
+context.lineTo(railLeftX1  ,dimensionLineY1  );
 context.closePath();
 context.fill();
 
-// Right arrow
-context.beginPath();
-context.moveTo(innerWallToRailX1 - arrowSize, wallToRailLineY1 - arrowSize / 2);
-context.lineTo(innerWallToRailX1 - arrowSize, wallToRailLineY1 + arrowSize / 2);
-context.lineTo(innerWallToRailX1, wallToRailLineY1);
-context.closePath();
-context.fill();
 
-// Label for the inner wall to right rail distance
-context.save();
-context.font = '13px Arial';
-context.textAlign = 'center';
-context.fillText(
-  `${(innerWallToRailX1 - railX2).toFixed(0)}`,
-  (innerWallToRailX1 + railX2Adjusted) / 2,
-  wallToRailLineY1 - 8
-);
-context.restore();
+// Add vertical text labels for the heights
+const drawVerticalHeightLabel = (context, startX, endX, dimensionLineY1, scaleFactor, offsetX = 20*SCALE_FACTOR) => {
+  const distance = Math.abs(startX - endX) / scaleFactor; // Calculate distance in mm
+  const midX = (startX + endX) / 2; // Vertical midpoint
 
+  context.save(); // Save the context state
+  context.translate(midX, dimensionLineY1 + offsetX); // Move to the label position
+  
+   
+  context.fillStyle = 'black';
+  context.textAlign = 'center';
+  context.fillText(`${distance.toFixed(0)} `, 0, -40*SCALE_FACTOR); // Draw text
+  context.restore(); // Restore the original context
+};
+
+// Draw labels for the first and second dimensions
+drawVerticalHeightLabel(context, railLeftX ,  shaftLeftY, dimensionLineY, SCALE_FACTOR);
+drawVerticalHeightLabel(context, railLeftX1 ,  shaftLeftY1, dimensionLineY1, SCALE_FACTOR);
+
+  
+    
 
   
   
       drawRailDistanceDimension(context, railX1, railX2, railCenterY);
+      const dimensionOffsetY = startY -50*SCALE_FACTOR-verticalOffset*SCALE_FACTOR;
+  
+      const labelFontSize = 54 * SCALE_FACTOR;
+
+    // Draw dimension line for wall opening offset
+    context.strokeStyle = 'black';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(centerX, dimensionOffsetY);
+    context.lineTo(centerX + horizontalOffsetXPx, dimensionOffsetY);
+    context.stroke();
+
+    // Draw arrows
+    context.beginPath();
+    context.moveTo(centerX +horizontalOffsetXPx - arrowSize/2, dimensionOffsetY - arrowSize / 2);
+    context.lineTo(centerX + horizontalOffsetXPx - arrowSize/2, dimensionOffsetY+ arrowSize / 2);
+    context.lineTo(centerX+ horizontalOffsetXPx, dimensionOffsetY);
+    context.closePath();
+    context.fill();
+
+    context.beginPath();
+    context.moveTo(centerX + arrowSize/2, dimensionOffsetY - arrowSize / 2);
+    context.lineTo(centerX + arrowSize/2, dimensionOffsetY + arrowSize / 2);
+    context.lineTo(centerX, dimensionOffsetY);
+    context.closePath();
+    context.fill();
+
+    // Label for wall opening offset
+    context.font = `${labelFontSize}px Arial`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(` ${horizontalOffsetX} `, centerX+horizontalOffsetXPx/2 , dimensionOffsetY - 40 * SCALE_FACTOR);
+ 
   
        break;
 }
@@ -4593,7 +5538,7 @@ const drawPistonForLeftAndRightCase = (context, startX, startY, innerWidthPx, in
    const shoeHeight = 75* SCALE_FACTOR;
 
   // Calculate frame dimensions for left and right cases
-  const centerY = cabinY + cabinDepthPx / 2 + carDoorjambPx+ carDoorHeightPx;
+  const centerY = cabinY + cabinDepthPx / 2 + carDoorjambPx+ carDoorHeightPx-verticalOffset*SCALE_FACTOR/2;
   const leftRailX = startX + tShapeSettings.leftOffsetX * SCALE_FACTOR;
   const bottomLeftY1 = centerY - railDistancePx / 2 + tShapeHeightPx + shoeHeight /2+ (verticalOffsetY * SCALE_FACTOR);
   const bottomLeftY2 = centerY + railDistancePx / 2 - tShapeHeightPx  - shoeHeight/2+ (verticalOffsetY * SCALE_FACTOR);
@@ -4645,7 +5590,7 @@ const drawPistonForLeftAndRightCase = (context, startX, startY, innerWidthPx, in
     case 'left': {
       
       const railX = startX + tShapeSettings.offsetX * SCALE_FACTOR;
-      const centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2;
+      const centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2-verticalOffset*SCALE_FACTOR/2;
       const shoeHeight = 60 * SCALE_FACTOR;
       
   
@@ -4668,10 +5613,19 @@ const drawPistonForLeftAndRightCase = (context, startX, startY, innerWidthPx, in
       const innerFrameY = frameY + innerFrameHeight / 2;
   
       context.strokeRect(innerFrameX, innerFrameY, innerFrameWidth, innerFrameHeight);
+
+      
+       // Calculate the center of the car frame
+       const frameCenterX = (frameX1 + frameX2) / 2;
+       const frameCenterY = frameY + frameHeight / 2 + carDoorjambPx/2 + carDoorHeightPx/2;
+        
+   
+       // Draw the piston at the center of the car frame
+       drawPiston(context, frameCenterX, frameCenterY);
       // Drawing dimension line from the inner wall of the shaft to the piston axis
 const drawDimensionToPiston = (context, innerWallX, pistonAxisX, startY, innerDepthPx) => {
-  const arrowSize = 5; // Arrowhead size
-  const labelFontSize = 13; // Label font size
+   const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
+  const labelFontSize = 72*SCALE_FACTOR; // Label font size
 
   // Position for the dimension line
   const dimensionLineY = startY - rearWallThicknessPx  - 225 * SCALE_FACTOR; // Below the shaft for clarity
@@ -4700,6 +5654,14 @@ const drawDimensionToPiston = (context, innerWallX, pistonAxisX, startY, innerDe
   context.lineTo(pistonAxisX, dimensionLineY);
   context.closePath();
   context.fill();
+  context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(pistonAxisX, startY+innerDepthPx/2);
+context.lineTo(pistonAxisX, dimensionLineY);
+context.stroke();
 
   // Add label
   const dimensionLength = ((pistonAxisX - innerWallX) / SCALE_FACTOR).toFixed(0); // Convert to mm
@@ -4708,7 +5670,7 @@ const drawDimensionToPiston = (context, innerWallX, pistonAxisX, startY, innerDe
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.fillStyle = 'black';
-  context.fillText(` ${dimensionLength} `, (innerWallX + pistonAxisX) / 2, dimensionLineY - 8);
+  context.fillText(` ${dimensionLength} `, (innerWallX + pistonAxisX) / 2, dimensionLineY -40*SCALE_FACTOR);
   context.restore();
 };
 
@@ -4717,8 +5679,8 @@ const pistonAxisX = startX + offsetXPx; // Center of the shaft
 drawDimensionToPiston(context, startX, pistonAxisX, startY, innerDepthPx);
 // Drawing dimension line from the inner wall of the shaft to the piston axis
 const drawDimensionToPiston1 = (context, innerWallX, pistonAxisX, startY, innerDepthPx) => {
-  const arrowSize = 5; // Arrowhead size
-  const labelFontSize = 13; // Label font size
+   const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
+  const labelFontSize = 72*SCALE_FACTOR; // Label font size
 
   // Position for the dimension line
   const dimensionLineY = startY - rearWallThicknessPx  - 225 * SCALE_FACTOR; // Below the shaft for clarity
@@ -4755,7 +5717,7 @@ const drawDimensionToPiston1 = (context, innerWallX, pistonAxisX, startY, innerD
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.fillStyle = 'black';
-  context.fillText(` ${dimensionLength} `, (cabinX + pistonAxisX1) / 2, dimensionLineY - 8);
+  context.fillText(` ${dimensionLength} `, (cabinX + pistonAxisX1) / 2, dimensionLineY -40*SCALE_FACTOR);
   context.restore();
 };
 
@@ -4771,7 +5733,7 @@ drawDimensionToPiston1(context, startX, pistonAxisX, startY, innerDepthPx);
       
       frameWidth = 150 * SCALE_FACTOR
       const railX = startX + innerWidthPx - frameWidth/2 + tShapeSettings.offsetX*SCALE_FACTOR ;
-      const centerY = cabinY + cabinDepthPx / 2 + carDoorjambPx/2 + carDoorHeightPx/2;
+      const centerY = cabinY + cabinDepthPx / 2 + carDoorjambPx/2 + carDoorHeightPx/2 -verticalOffset*SCALE_FACTOR/2;
       const shoeHeight = 60 * SCALE_FACTOR;
   
       const bottomY1 = centerY - railDistancePx / 2 + tShapeHeightPx +shoeHeight/2 + (verticalOffsetY * SCALE_FACTOR);
@@ -4802,11 +5764,11 @@ drawDimensionToPiston1(context, startX, pistonAxisX, startY, innerDepthPx);
     drawPiston(context, frameCenterX, frameCenterY);
     // Drawing dimension line from the inner wall of the shaft to the piston axis
 const drawDimensionToPiston = (context, innerWallX, pistonAxisX, startY, innerDepthPx) => {
-  const arrowSize = 5; // Arrowhead size
-  const labelFontSize = 13; // Label font size
+   const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
+  const labelFontSize = 72*SCALE_FACTOR; // Label font size
 
   // Position for the dimension line
-  const dimensionLineY = startY - rearWallThicknessPx  - 250 * SCALE_FACTOR; // Below the shaft for clarity
+  const dimensionLineY = startY - rearWallThicknessPx  - 225 * SCALE_FACTOR; // Below the shaft for clarity
 
   // Draw the horizontal dimension line
   context.strokeStyle = 'black';
@@ -4832,6 +5794,14 @@ const drawDimensionToPiston = (context, innerWallX, pistonAxisX, startY, innerDe
   context.lineTo(pistonAxisX, dimensionLineY);
   context.closePath();
   context.fill();
+  context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(pistonAxisX, startY+innerDepthPx/2);
+context.lineTo(pistonAxisX, dimensionLineY);
+context.stroke();
 
   // Add label
   const dimensionLength = (-(- innerWallX -innerWidthPx +pistonAxisX) / SCALE_FACTOR).toFixed(0); // Convert to mm
@@ -4840,7 +5810,7 @@ const drawDimensionToPiston = (context, innerWallX, pistonAxisX, startY, innerDe
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.fillStyle = 'black';
-  context.fillText(` ${dimensionLength} `, (innerWallX + innerWidthPx+ pistonAxisX) / 2, dimensionLineY - 8);
+  context.fillText(` ${dimensionLength} `, (innerWallX + innerWidthPx+ pistonAxisX) / 2, dimensionLineY -40*SCALE_FACTOR);
   context.restore();
 };
 
@@ -4848,23 +5818,22 @@ const drawDimensionToPiston = (context, innerWallX, pistonAxisX, startY, innerDe
 const pistonAxisX = startX + innerWidthPx+ offsetXPx; // Center of the shaft
 drawDimensionToPiston(context, startX, pistonAxisX, startY, innerDepthPx);
 // Drawing dimension line from the inner wall of the shaft to the piston axis
-const drawDimensionToPiston1 = (context, innerWallX, pistonAxisX1, startY, innerDepthPx, ) => {
-  const arrowSize = 5; // Arrowhead size
-  const labelFontSize = 13; // Label font size
+const drawDimensionToPiston1 = (context, innerWallX1, pistonAxisX1, startY, innerDepthPx) => {
+   const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
+  const labelFontSize = 72*SCALE_FACTOR; // Label font size
 
   // Position for the dimension line
-  const dimensionLineY = startY - rearWallThicknessPx  - 105 * SCALE_FACTOR; // Below the shaft for clarity
+  const dimensionLineY = startY - rearWallThicknessPx - 225 * SCALE_FACTOR; // Below the shaft for clarity
 
   // Draw the horizontal dimension line
   context.strokeStyle = 'black';
   context.lineWidth = 1;
   context.beginPath();
-  context.moveTo(startX+ cabinX, dimensionLineY);
-  context.lineTo(pistonAxisX1, dimensionLineY);
+  context.moveTo(pistonAxisX1, dimensionLineY);
+  context.lineTo(innerWallX1+ innerWidthPx- railwallDistancePx, dimensionLineY); // Corrected to full shaft width
   context.stroke();
 
-  // Draw arrows
-  // Left arrow
+  // Left arrow (piston axis)
   context.beginPath();
   context.moveTo(pistonAxisX1 - arrowSize, dimensionLineY - arrowSize / 2);
   context.lineTo(pistonAxisX1 - arrowSize, dimensionLineY + arrowSize / 2);
@@ -4872,29 +5841,28 @@ const drawDimensionToPiston1 = (context, innerWallX, pistonAxisX1, startY, inner
   context.closePath();
   context.fill();
 
-  // Right arrow
+  // Right arrow (shaft inner wall)
   context.beginPath();
-  context.moveTo(startX+cabinX + arrowSize, dimensionLineY - arrowSize / 2);
-  context.lineTo(startX+cabinX + arrowSize, dimensionLineY + arrowSize / 2);
-  context.lineTo(startX+cabinX, dimensionLineY);
+  context.moveTo(innerWallX1 + innerWidthPx - railwallDistancePx+ arrowSize, dimensionLineY - arrowSize / 2);
+  context.lineTo(innerWallX1 + innerWidthPx - railwallDistancePx+ arrowSize, dimensionLineY + arrowSize / 2);
+  context.lineTo(innerWallX1 + innerWidthPx- railwallDistancePx, dimensionLineY);
   context.closePath();
   context.fill();
 
   // Add label
-  const dimensionLength = ((pistonAxisX1 - (startX + cabinX)) / SCALE_FACTOR).toFixed(0); // Convert to mm
+  const dimensionLength = (-(innerWallX1 + innerWidthPx- railwallDistancePx - pistonAxisX1) / SCALE_FACTOR).toFixed(0); // Convert to mm
   context.save();
   context.font = `${labelFontSize}px Arial`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.fillStyle = 'black';
-  context.fillText(` ${dimensionLength} `, (cabinX + pistonAxisX1) / 2, dimensionLineY - 8);
+  context.fillText(` ${dimensionLength} `, (pistonAxisX1 + innerWallX1 + innerWidthPx- railwallDistancePx) / 2, dimensionLineY -40*SCALE_FACTOR);
   context.restore();
 };
 
-// Example usage in drawShaft
-const pistonAxisX1 = startX +innerWidthPx+ offsetXPx; // Center of the shaft
+// Corrected Example Usage in drawShaft
+const pistonAxisX1 = startX + innerWidthPx + offsetXPx; // Adjusted center of the shaft
 drawDimensionToPiston1(context, startX, pistonAxisX1, startY, innerDepthPx);
-  
  
      
       break;
@@ -4910,7 +5878,7 @@ drawDimensionToPiston1(context, startX, pistonAxisX1, startY, innerDepthPx);
       frameX1 = railX1;
       frameX2 = railX2 ;
       frameY = startY - frameHeight /2 + tShapeHeightThicknessPx/2+ tShapeSettings.offsetY * SCALE_FACTOR ;
-      const centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2;
+      const centerY = cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2 +verticalOffset*SCALE_FACTOR/2;
   
       context.strokeStyle = 'black';
       context.lineWidth = 2;
@@ -4944,7 +5912,8 @@ context.lineWidth = 1;
 context.setLineDash([5, 3]);  // Dash pattern for axis lines
 
 // Vertical axis through the piston center
-context.beginPath();
+context
+.beginPath();
 context.moveTo(centerX, frameY - tShapeHeightPx -bracketHeightPx-20);  // Top of piston frame
 context.lineTo(centerX, frameY + frameHeight+ tShapeHeightPx+bracketHeightPx+20);  // Bottom of piston frame
 context.stroke();
@@ -4958,13 +5927,153 @@ context.stroke();
 // Reset line dash for further drawing
 context.setLineDash([]);
 
+const frameCenterX = (frameX1 + frameX2) / 2;
+const frameCenterY = frameY + frameHeight / 2 + carDoorjambPx/2 + carDoorHeightPx/2;
+ 
+
+// Draw the piston at the center of the car frame
+drawPiston(context, frameCenterX, frameCenterY);
+
+// Drawing dimension line from the inner wall of the shaft to the piston axis
+const drawDimensionToPiston = (context, innerWallY, pistonAxisY, startY, innerDepthPx) => {
+ const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
+const labelFontSize = 72*SCALE_FACTOR; // Label font size
+
+// Position for the dimension line
+const dimensionLineX = startX +innerWidthPx + rightWallThicknessPx+ 225 * SCALE_FACTOR; // Below the shaft for clarity
+
+// Draw the horizontal dimension line
+context.strokeStyle = 'black';
+context.lineWidth = 1;
+context.beginPath();
+context.moveTo( dimensionLineX ,innerWallY );
+context.lineTo(dimensionLineX ,pistonAxisY);
+context.stroke();
+
+// Draw arrows
+// Left arrow
+context.beginPath();
+context.moveTo( dimensionLineX - arrowSize / 2 ,innerWallY  + arrowSize);
+context.lineTo(dimensionLineX + arrowSize / 2 ,innerWallY  + arrowSize);
+context.lineTo( dimensionLineX ,innerWallY);
+context.closePath();
+context.fill();
+
+// Right arrow
+context.beginPath();
+context.moveTo( dimensionLineX - arrowSize / 2,pistonAxisY - arrowSize);
+context.lineTo(dimensionLineX + arrowSize / 2,pistonAxisY - arrowSize);
+context.lineTo(dimensionLineX ,pistonAxisY );
+context.closePath();
+context.fill();
+context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(startX+innerWidthPx/2, pistonAxisY);
+context.lineTo(dimensionLineX, pistonAxisY);
+context.stroke();
+
+
+const dimensionLength = ((-innerWallY + pistonAxisY) / SCALE_FACTOR).toFixed(0); // Convert to mm
+
+context.save();
+context.font = `${labelFontSize}px Arial`;
+context.textAlign = 'center';
+context.textBaseline = 'middle';
+context.fillStyle = 'black';
+
+// Corrected midpoint calculation
+const textX = dimensionLineX +40*SCALE_FACTOR; // Adjusted X position
+const textY = (innerWallY + pistonAxisY) / 2; // Adjusted Y position
+
+// Move to the label position before rotating
+context.translate(textX, textY);
+
+// Rotate 180 degrees (flip text upside down)
+context.rotate(Math.PI/2);
+
+// Draw the rotated text
+context.fillText(` ${dimensionLength} `, 0, 0);
+
+context.restore(); // Restore original orientation
+}
+
+// Example usage in drawShaft
+const pistonAxisY = startY + offsetYPx; // Center of the shaft
+drawDimensionToPiston(context, startY, pistonAxisY, startY, innerDepthPx);
+// Drawing dimension line from the inner wall of the shaft to the piston axis
+const drawDimensionToPiston1 = (context, innerWallY1, pistonAxisY1, startY, innerDepthPx) => {
+   const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
+  const labelFontSize = 72*SCALE_FACTOR; // Label font size
+
+  // Position for the dimension line
+  const dimensionLineX = startX + innerWidthPx+  rightWallThicknessPx+ 225 * SCALE_FACTOR; // Below the shaft for clarity
+
+  // Draw the horizontal dimension line
+  context.strokeStyle = 'black';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo( dimensionLineX ,innerWallY1  + railwallDistancePx);
+  context.lineTo( dimensionLineX ,pistonAxisY1);
+  context.stroke();
+
+  // Left arrow (piston axis)
+  context.beginPath();
+  context.moveTo(dimensionLineX - arrowSize / 2 ,pistonAxisY1 + arrowSize);
+  context.lineTo(dimensionLineX + arrowSize / 2 ,pistonAxisY1 + arrowSize);
+  context.lineTo( dimensionLineX , pistonAxisY1);
+  context.closePath();
+  context.fill();
+
+  // Right arrow (shaft inner wall minus railwallDistancePx)
+  context.beginPath();
+  context.moveTo( dimensionLineX - arrowSize / 2 , innerWallY1  + railwallDistancePx - arrowSize);
+  context.lineTo( dimensionLineX + arrowSize / 2,innerWallY1  + railwallDistancePx - arrowSize);
+  context.lineTo( dimensionLineX , innerWallY1  + railwallDistancePx);
+  context.closePath();
+  context.fill();
+
+// Compute the label text
+const dimensionLength = ((-pistonAxisY1 + innerWallY1 + railwallDistancePx) / SCALE_FACTOR).toFixed(0); // Convert to mm
+
+context.save();
+context.font = `${labelFontSize}px Arial`; 
+context.textAlign = 'center';
+context.textBaseline = 'middle';
+context.fillStyle = 'black';
+
+// Corrected midpoint calculation
+const textX = dimensionLineX +40*SCALE_FACTOR; // Keep text near the dimension line
+const textY = (pistonAxisY1 + innerWallY1) / 2 + railwallDistancePx / 2; // Adjusted midpoint
+
+// Move to label position before rotating
+context.translate(textX, textY);
+
+// Rotate 180 degrees (flip text)
+context.rotate(Math.PI/2);
+
+// Draw the rotated text
+context.fillText(` ${dimensionLength} `, 0, 0);
+
+context.restore(); // Restore original orientation
+
+};
+
+// Corrected Example Usage in drawShaft
+const pistonAxisY1 = startY  + offsetYPx; // Adjusted center of the shaft
+drawDimensionToPiston1(context, startY, pistonAxisY1, startY, innerDepthPx);
+
+
+
       
       
       break;
     }
   
     case 'left & right': {
-      const centerY = cabinY + cabinDepthPx / 2 + carDoorjambPx/2 + carDoorHeightPx/2;
+      const centerY = cabinY + cabinDepthPx / 2 + carDoorjambPx/2 + carDoorHeightPx/2 -verticalOffset*SCALE_FACTOR/2;
       const shoeHeight = 60*SCALE_FACTOR;
     
       // Left rail logic
@@ -5015,7 +6124,7 @@ context.setLineDash([]);
       drawPistonForLeftAndRightCase(context, startX, startY, innerWidthPx, innerDepthPx);
       // Drawing dimension line from the inner wall of the shaft to the piston axis
 const drawDimensionToPiston = (context, innerWallX, pistonAxisX, startY, innerDepthPx) => {
-  const arrowSize = 5; // Arrowhead size
+   const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
   const labelFontSize = 13; // Label font size
 
   // Position for the dimension line
@@ -5049,20 +6158,20 @@ const drawDimensionToPiston = (context, innerWallX, pistonAxisX, startY, innerDe
   // Add label
   const dimensionLength = ((pistonAxisX - innerWallX) / SCALE_FACTOR).toFixed(0); // Convert to mm
   context.save();
-  context.font = `${labelFontSize}px Arial`;
+  context.font = `$12px Arial`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.fillStyle = 'black';
-  context.fillText(` ${dimensionLength} `, (innerWallX + pistonAxisX) / 2, dimensionLineY - 8);
+  context.fillText(` ${dimensionLength} `, (innerWallX + pistonAxisX) / 2, dimensionLineY -40*SCALE_FACTOR);
   context.restore();
 };
 
 // Example usage in drawShaft
-const pistonAxisX = startX + offsetXPx; // Center of the shaft
+const pistonAxisX = startX + leftOffsetXPx; // Center of the shaft
 drawDimensionToPiston(context, startX, pistonAxisX, startY, innerDepthPx);
 // Drawing dimension line from the inner wall of the shaft to the piston axis
 const drawDimensionToPiston1 = (context, innerWallX, pistonAxisX, startY, innerDepthPx) => {
-  const arrowSize = 5; // Arrowhead size
+   const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
   const labelFontSize = 13; // Label font size
 
   // Position for the dimension line
@@ -5096,17 +6205,135 @@ const drawDimensionToPiston1 = (context, innerWallX, pistonAxisX, startY, innerD
   // Add label
   const dimensionLength = ((cabinX- pistonAxisX1) / SCALE_FACTOR).toFixed(0); // Convert to mm
   context.save();
-  context.font = `${labelFontSize}px Arial`;
+  context.font = `$12px Arial`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   context.fillStyle = 'black';
-  context.fillText(` ${dimensionLength} `, (cabinX + pistonAxisX1) / 2, dimensionLineY - 8);
+  context.fillText(` ${dimensionLength} `, (cabinX + pistonAxisX1) / 2, dimensionLineY -40*SCALE_FACTOR);
   context.restore();
 };
 
 // Example usage in drawShaft
-const pistonAxisX1 = startX + offsetXPx; // Center of the shaft
+const pistonAxisX1 = startX + leftOffsetXPx; // Center of the shaft
 drawDimensionToPiston1(context, startX, pistonAxisX, startY, innerDepthPx);
+
+
+const drawDimensionToPiston2 = (context, innerWallX, pistonAxisX, startY, innerDepthPx) => {
+   const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
+  
+
+  // Position for the dimension line
+  const dimensionLineY = startY - rearWallThicknessPx  - 225 * SCALE_FACTOR; // Below the shaft for clarity
+
+  // Draw the horizontal dimension line
+  context.strokeStyle = 'black';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(innerWallX + innerWidthPx- railwallDistancePx, dimensionLineY);
+  context.lineTo(pistonAxisX2, dimensionLineY);
+  context.stroke();
+
+  // Draw arrows
+  // Left arrow
+  context.beginPath();
+  context.moveTo(innerWallX + innerWidthPx- railwallDistancePx+ arrowSize, dimensionLineY - arrowSize / 2);
+  context.lineTo(innerWallX + innerWidthPx- railwallDistancePx + arrowSize, dimensionLineY + arrowSize / 2);
+  context.lineTo(innerWallX + innerWidthPx- railwallDistancePx, dimensionLineY);
+  context.closePath();
+  context.fill();
+
+  // Right arrow
+  context.beginPath();
+  context.moveTo(pistonAxisX2 - arrowSize, dimensionLineY - arrowSize / 2);
+  context.lineTo(pistonAxisX2 - arrowSize, dimensionLineY + arrowSize / 2);
+  context.lineTo(pistonAxisX2, dimensionLineY);
+  context.closePath();
+  context.fill();
+  context.strokeStyle = 'grey'; // Dimension line color
+  context.lineWidth = 0.5;
+  
+  // Left perpendicular line
+  context.beginPath();
+  context.moveTo(startX+leftOffsetXPx,centerY);
+  context.lineTo(startX+leftOffsetXPx, dimensionLineY);
+  context.stroke();
+  
+
+  // Add label
+  const dimensionLength = (-( innerWallX + innerWidthPx- railwallDistancePx - pistonAxisX2) / SCALE_FACTOR).toFixed(0); // Convert to mm
+  context.save();
+  context.font = `$12px Arial`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = 'black';
+  context.fillText(` ${dimensionLength} `, (innerWallX+ innerWidthPx- railwallDistancePx + pistonAxisX2) / 2, dimensionLineY -40*SCALE_FACTOR);
+  context.restore();
+};
+
+// Example usage in drawShaft
+const pistonAxisX2 = startX+ innerWidthPx +rightOffsetXPx; // Center of the shaft
+drawDimensionToPiston2(context, startX, pistonAxisX, startY, innerDepthPx);
+
+
+// Drawing dimension line from the inner wall of the shaft to the piston axis
+const drawDimensionToPiston3 = (context, innerWallX, pistonAxisX, startY, innerDepthPx) => {
+   const arrowSize = 32*SCALE_FACTOR; // Arrowhead size
+  const labelFontSize = 13; // Label font size
+
+  // Position for the dimension line
+  const dimensionLineY = startY - rearWallThicknessPx  - 225 * SCALE_FACTOR; // Below the shaft for clarity
+
+  // Draw the horizontal dimension line
+  context.strokeStyle = 'black';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(startX+innerWidthPx, dimensionLineY);
+  context.lineTo(pistonAxisX3, dimensionLineY);
+  context.stroke();
+
+  // Draw arrows
+  // Left arrow
+  context.beginPath();
+  context.moveTo(pistonAxisX3 + arrowSize, dimensionLineY - arrowSize / 2);
+  context.lineTo(pistonAxisX3 + arrowSize, dimensionLineY + arrowSize / 2);
+  context.lineTo(pistonAxisX3, dimensionLineY);
+  context.closePath();
+  context.fill();
+
+  // Right arrow
+  context.beginPath();
+  context.moveTo(startX+innerWidthPx - arrowSize, dimensionLineY - arrowSize / 2);
+  context.lineTo(startX+innerWidthPx- arrowSize, dimensionLineY + arrowSize / 2);
+  context.lineTo(startX+innerWidthPx, dimensionLineY);
+  context.closePath();
+  context.fill();
+  context.strokeStyle = 'grey'; // Dimension line color
+context.lineWidth = 0.5;
+
+// Left perpendicular line
+context.beginPath();
+context.moveTo(pistonAxisX3,centerY);
+context.lineTo(pistonAxisX3, dimensionLineY);
+context.stroke();
+
+  // Add label
+  const dimensionLength = ((startX+innerWidthPx- pistonAxisX3) / SCALE_FACTOR).toFixed(0); // Convert to mm
+  context.save();
+  context.font = `$12px Arial`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = 'black';
+  context.fillText(` ${dimensionLength} `, (startX+innerWidthPx + pistonAxisX3) / 2, dimensionLineY -40*SCALE_FACTOR);
+  context.restore();
+};
+
+// Example usage in drawShaft
+const pistonAxisX3 = startX + innerWidthPx+ rightOffsetXPx; // Center of the shaft
+drawDimensionToPiston3(context, startX, pistonAxisX, startY, innerDepthPx);
+
+
+
+
       break;
     }
 
@@ -5115,13 +6342,6 @@ drawDimensionToPiston1(context, startX, pistonAxisX, startY, innerDepthPx);
   }
  
 
-    // Calculate the center of the car frame
-    const frameCenterX = (frameX1 + frameX2) / 2;
-    const frameCenterY = frameY + frameHeight / 2 + carDoorjambPx/2 + carDoorHeightPx/2;
-     
-
-    // Draw the piston at the center of the car frame
-    drawPiston(context, frameCenterX, frameCenterY);
   
  
 
@@ -5216,7 +6436,7 @@ switch (tShapeSettings.selectedWall) {
   case 'left & right': {
     // Common dimensions
 
-    const centerY =cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2;
+    const centerY =cabinY + cabinDepthPx / 2+ carDoorjambPx/2 + carDoorHeightPx/2 -verticalOffset*SCALE_FACTOR/2;
     const shoeWidth = 74 * SCALE_FACTOR;
     const shoeHeight = 60 * SCALE_FACTOR;
     const shoeThickness = 10 * SCALE_FACTOR;
@@ -5269,6 +6489,7 @@ switch (tShapeSettings.selectedWall) {
  
 
 };
+
 
 
 
@@ -5384,7 +6605,9 @@ switch (tShapeSettings.selectedWall) {
   
 
   // Draw horizontal lines for landing door
-  const numberOfHorizontalLines = 6;
+  context.strokeStyle = 'black';
+  context.lineWidth = 1
+  const numberOfHorizontalLines = 2;
   const landingLineSpacingY = landingDoorHeightPx / (numberOfHorizontalLines + 1);
   for (let i = 1; i <= numberOfHorizontalLines; i++) {
       const horizontalY = landingDoorY + i * landingLineSpacingY;
@@ -5437,7 +6660,7 @@ context.stroke();
  // Draw dimension lines for landing door width
  const landingDimensionY = landingDoorY + landingDoorHeightPx + wallThickness.front* SCALE_FACTOR +400* SCALE_FACTOR + verticalOffset*SCALE_FACTOR; // Below the landing door
  context.strokeStyle = "Black";
- context.lineWidth = 0.5;
+ context.lineWidth = 1;
 
  // Draw line for landing door width
  context.beginPath();
@@ -5446,7 +6669,7 @@ context.stroke();
  context.stroke();
 
  // Draw arrows for landing door width
- const arrowSize = 4;
+ const arrowSize = 24*SCALE_FACTOR;
  context.beginPath();
  // Left arrow
  context.moveTo(landingDoorX+ arrowSize, landingDimensionY - arrowSize);
@@ -5462,6 +6685,20 @@ context.stroke();
  context.lineTo(landingDoorX-arrowSize + landingDoorWidthPx, landingDimensionY + arrowSize);
  context.closePath();
  context.fill();
+ context.strokeStyle = 'black'; // Dimension line color
+ context.lineWidth = 0.3;
+ // Perpendicular lines at the ends
+ context.beginPath();
+
+ context.moveTo(landingDoorX,landingDoorY); // Left side vertical line
+ context.lineTo(landingDoorX, landingDimensionY);
+ context.stroke();
+
+ context.beginPath();
+ context.moveTo(landingDoorX + landingDoorWidthPx,landingDoorY); // Right side vertical line
+ context.lineTo(landingDoorX + landingDoorWidthPx, landingDimensionY);
+ context.stroke();
+
 
  context.save();
   context.fillStyle = 'black';
@@ -5470,7 +6707,7 @@ context.stroke();
   context.fillText(
      `LandingDoor  ${landingDoorDimensions.width} `,
      landingDoorX + landingDoorWidthPx / 2 ,
-     landingDimensionY - 8 )
+     landingDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
@@ -5497,6 +6734,19 @@ context.stroke();
  context.lineTo(carDoorX -arrowSize+ carDoorWidthPx, carDimensionY + arrowSize);
  context.closePath();
  context.fill();
+ context.strokeStyle = 'black'; // Dimension line color
+ context.lineWidth = 0.3;
+ // Perpendicular lines at the ends
+ context.beginPath();
+
+ context.moveTo(carDoorX,carDoorY); // Left side vertical line
+ context.lineTo(carDoorX, carDimensionY);
+ context.stroke();
+
+ context.beginPath();
+ context.moveTo(carDoorX + carDoorWidthPx,carDoorY); // Right side vertical line
+ context.lineTo(carDoorX + carDoorWidthPx,carDimensionY);
+ context.stroke();
 
  // Add label for car door width
  
@@ -5508,14 +6758,14 @@ context.stroke();
  context.fillText(
      `CarDoor ${carDoorDimensions.width} `,
      carDoorX + carDoorWidthPx / 2 ,
-     carDimensionY - 8 )
+     carDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
      const drawDoorFrameDimensions = (context, frameX1, frameY, frameWidthPx, frameHeightPx, SCALE_FACTOR) => {
-      const arrowSize = 3; // Size of the arrowheads
-      const labelOffset = -5; // Distance from the dimension line to the label
-      const fontSize = 12;
+      const arrowSize = 18 *SCALE_FACTOR;// Size of the arrowheads
+       // Distance from the dimension line to the label
+      const fontSize = 72*SCALE_FACTOR;
   
       context.strokeStyle = 'black'; // Dimension line color
       context.lineWidth = 1;
@@ -5529,7 +6779,7 @@ context.stroke();
       context.lineTo(frameX1 + frameWidthPx, widthDimY); // To the right side of the frame
       context.stroke();
 
-      context.strokeStyle = 'grey'; // Dimension line color
+      context.strokeStyle = 'black'; // Dimension line color
       context.lineWidth = 0.3;
       // Perpendicular lines at the ends
       context.beginPath();
@@ -5561,7 +6811,7 @@ context.stroke();
       // Label for width
       const frameWidth = (frameWidthPx / SCALE_FACTOR).toFixed(0); // Convert to mm
       const widthLabelX = frameX1 + frameWidthPx / 2; // Midpoint of the width
-      context.fillText(`${frameWidth} `, widthLabelX - fontSize, widthDimY + labelOffset);
+      context.fillText(`${frameWidth} `, widthLabelX , widthDimY -40*SCALE_FACTOR);
   
 
       const widthDimY1 = frameY + wallThickness.front*SCALE_FACTOR + 150*SCALE_FACTOR + verticalOffset*SCALE_FACTOR; // Below the doorframe
@@ -5604,10 +6854,10 @@ context.stroke();
       // Label for width
       const frameWidth1 = (frameWidthPx / SCALE_FACTOR).toFixed(0); // Convert to mm
       const widthLabelX2 = frameX1  + frameWidthPx / 2 + DoorWidthPx + frameWidthPx; // Midpoint of the width
-      context.fillText(`${frameWidth1} `, widthLabelX2 - fontSize, widthDimY1 + labelOffset);
+      context.fillText(`${frameWidth1} `, widthLabelX2 , widthDimY1 -40*SCALE_FACTOR);
 
       // **Doorframe Height Dimension**
-      const heightDimX = frameX1  ; // To the left of the doorframe
+      const heightDimX = frameX1 ; // To the left of the doorframe
       context.beginPath();
       context.moveTo(heightDimX , frameY); // From the top of the frame
       context.lineTo(heightDimX, frameY + frameHeightPx); // To the bottom of the frame
@@ -5626,23 +6876,21 @@ context.stroke();
   
       // Add arrows
       context.beginPath();
-      context.moveTo(heightDimX, frameY);
       context.lineTo(heightDimX - arrowSize, frameY + arrowSize);
-      context.lineTo(heightDimX + arrowSize, frameY + arrowSize);
-      context.closePath();
-      context.fill();
+      context.moveTo(heightDimX, frameY);
+
+      context.stroke();
   
       context.beginPath();
-      context.moveTo(heightDimX, frameY + frameHeightPx);
       context.lineTo(heightDimX - arrowSize, frameY + frameHeightPx - arrowSize);
-      context.lineTo(heightDimX + arrowSize, frameY + frameHeightPx - arrowSize);
-      context.closePath();
-      context.fill();
+      context.moveTo(heightDimX, frameY + frameHeightPx);
+
+      context.stroke();
   
       // Label for height
       const frameHeight = (frameHeightPx / SCALE_FACTOR).toFixed(0); // Convert to mm
       const heightLabelY = frameY + frameHeightPx / 2; // Midpoint of the height
-      context.fillText(`${frameHeight} mm`, heightDimX - 3 * fontSize, heightLabelY + fontSize / 2);
+      context.fillText(`${frameHeight} `, heightDimX -40*SCALE_FACTOR ,heightLabelY -verticalOffset*SCALE_FACTOR);
   };
   
   // Usage Example
@@ -5857,7 +7105,7 @@ context.stroke();
   context.fillText(
      `LandingDoor  ${landingDoorDimensions.width} `,
      landingDoorX + landingDoorWidthPx / 2 ,
-     landingDimensionY - 8 )
+     landingDimensionY - 40*SCALE_FACTOR )
      context.restore();
 
 
@@ -5895,14 +7143,14 @@ context.stroke();
  context.fillText(
      `CarDoor ${carDoorDimensions.width} `,
      carDoorX + carDoorWidthPx / 2 ,
-     carDimensionY - 8 )
+     carDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
      const drawDoorFrameDimensions = (context, frameX1, frameY, frameWidthPx, frameHeightPx, SCALE_FACTOR) => {
-      const arrowSize = 3; // Size of the arrowheads
+      const arrowSize = 18 *SCALE_FACTOR;// Size of the arrowheads
       const labelOffset = -5; // Distance from the dimension line to the label
-      const fontSize = 12;
+      const fontSize = 72*SCALE_FACTOR;
   
       context.strokeStyle = 'black'; // Dimension line color
       context.lineWidth = 1;
@@ -6244,7 +7492,7 @@ context.stroke();
   context.fillText(
      `LandingDoor  ${landingDoorDimensions.width} `,
      landingDoorX + landingDoorWidthPx / 2 ,
-     landingDimensionY - 8 )
+     landingDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
@@ -6282,14 +7530,14 @@ context.stroke();
  context.fillText(
      `CarDoor ${carDoorDimensions.width} `,
      carDoorX + carDoorWidthPx / 2 ,
-     carDimensionY - 8 )
+     carDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
      const drawDoorFrameDimensions = (context, frameX1, frameY, frameWidthPx, frameHeightPx, SCALE_FACTOR) => {
-      const arrowSize = 3; // Size of the arrowheads
+      const arrowSize = 18 *SCALE_FACTOR;// Size of the arrowheads
       const labelOffset = -5; // Distance from the dimension line to the label
-      const fontSize = 12;
+      const fontSize = 72*SCALE_FACTOR;
   
       context.strokeStyle = 'black'; // Dimension line color
       context.lineWidth = 1;
@@ -6653,7 +7901,7 @@ context.stroke();
   context.fillText(
      `LandingDoor  ${landingDoorDimensions.width} `,
      landingDoorX + landingDoorWidthPx / 2 ,
-     landingDimensionY - 8 )
+     landingDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
@@ -6691,14 +7939,14 @@ context.stroke();
  context.fillText(
      `CarDoor ${carDoorDimensions.width} `,
      carDoorX + carDoorWidthPx / 2 ,
-     carDimensionY - 8 )
+     carDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
      const drawDoorFrameDimensions = (context, frameX1, frameY, frameWidthPx, frameHeightPx, SCALE_FACTOR) => {
-      const arrowSize = 3; // Size of the arrowheads
+      const arrowSize = 18 *SCALE_FACTOR;// Size of the arrowheads
       const labelOffset = -5; // Distance from the dimension line to the label
-      const fontSize = 12;
+      const fontSize = 72*SCALE_FACTOR;
   
       context.strokeStyle = 'black'; // Dimension line color
       context.lineWidth = 1;
@@ -7053,7 +8301,7 @@ context.stroke();
   context.fillText(
      `LandingDoor  ${landingDoorDimensions.width} `,
      landingDoorX + landingDoorWidthPx / 2 ,
-     landingDimensionY - 8 )
+     landingDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
@@ -7091,14 +8339,14 @@ context.stroke();
  context.fillText(
      `CarDoor ${carDoorDimensions.width} `,
      carDoorX + carDoorWidthPx / 2 ,
-     carDimensionY - 8 )
+     carDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
      const drawDoorFrameDimensions = (context, frameX1, frameY, frameWidthPx, frameHeightPx, SCALE_FACTOR) => {
-      const arrowSize = 3; // Size of the arrowheads
+      const arrowSize = 18 *SCALE_FACTOR;// Size of the arrowheads
       const labelOffset = -5; // Distance from the dimension line to the label
-      const fontSize = 12;
+      const fontSize = 72*SCALE_FACTOR;
   
       context.strokeStyle = 'black'; // Dimension line color
       context.lineWidth = 1;
@@ -7488,7 +8736,7 @@ context.stroke();
   context.fillText(
      `LandingDoor  ${landingDoorDimensions.width} `,
      landingDoorX + landingDoorWidthPx / 2 ,
-     landingDimensionY - 8 )
+     landingDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
@@ -7526,14 +8774,14 @@ context.stroke();
  context.fillText(
      `CarDoor ${carDoorDimensions.width} `,
      carDoorX + carDoorWidthPx / 2 ,
-     carDimensionY - 8 )
+     carDimensionY -40*SCALE_FACTOR )
      context.restore();
 
 
      const drawDoorFrameDimensions = (context, frameX1, frameY, frameWidthPx, frameHeightPx, SCALE_FACTOR) => {
-      const arrowSize = 3; // Size of the arrowheads
+      const arrowSize = 18 *SCALE_FACTOR;// Size of the arrowheads
       const labelOffset = -5; // Distance from the dimension line to the label
-      const fontSize = 12;
+      const fontSize = 72*SCALE_FACTOR;
   
       context.strokeStyle = 'black'; // Dimension line color
       context.lineWidth = 1;
@@ -7921,7 +9169,7 @@ context.save();
  context.fillText(
     `LandingDoor  ${landingDoorDimensions.width} `,
     landingDoorX + landingDoorWidthPx / 2 ,
-    landingDimensionY - 8 )
+    landingDimensionY -40*SCALE_FACTOR )
     context.restore();
 
 
@@ -7959,14 +9207,14 @@ context.textBaseline = 'middle';
 context.fillText(
     `CarDoor ${carDoorDimensions.width} `,
     carDoorX + carDoorWidthPx / 2 ,
-    carDimensionY - 8 )
+    carDimensionY -40*SCALE_FACTOR )
     context.restore();
 
 
     const drawDoorFrameDimensions = (context, frameX1, frameY, frameWidthPx, frameHeightPx, SCALE_FACTOR) => {
-     const arrowSize = 3; // Size of the arrowheads
+     const arrowSize = 18 *SCALE_FACTOR;// Size of the arrowheads
      const labelOffset = -5; // Distance from the dimension line to the label
-     const fontSize = 12;
+     const fontSize = 72*SCALE_FACTOR;
  
      context.strokeStyle = 'black'; // Dimension line color
      context.lineWidth = 1;
@@ -8376,7 +9624,7 @@ const drawDoorsS4C  = (context, startX, startY, cabinWidthPx, cabinDepthPx, inne
    context.fillText(
       `LandingDoor  ${landingDoorDimensions.width} `,
       landingDoorX + landingDoorWidthPx / 2 ,
-      landingDimensionY - 8 )
+      landingDimensionY -40*SCALE_FACTOR )
       context.restore();
  
  
@@ -8414,14 +9662,14 @@ const drawDoorsS4C  = (context, startX, startY, cabinWidthPx, cabinDepthPx, inne
   context.fillText(
       `CarDoor ${carDoorDimensions.width} `,
       carDoorX + carDoorWidthPx / 2 ,
-      carDimensionY - 8 )
+      carDimensionY -40*SCALE_FACTOR )
       context.restore();
  
  
       const drawDoorFrameDimensions = (context, frameX1, frameY, frameWidthPx, frameHeightPx, SCALE_FACTOR) => {
-       const arrowSize = 3; // Size of the arrowheads
+       const arrowSize = 18 *SCALE_FACTOR;// Size of the arrowheads
        const labelOffset = -5; // Distance from the dimension line to the label
-       const fontSize = 12;
+       const fontSize = 72*SCALE_FACTOR;
    
        context.strokeStyle = 'black'; // Dimension line color
        context.lineWidth = 1;
@@ -8562,7 +9810,7 @@ const drawDoorsS4C  = (context, startX, startY, cabinWidthPx, cabinDepthPx, inne
    );
    
  
- 
+
      
       
  
@@ -8575,8 +9823,7 @@ const drawDoorsS4C  = (context, startX, startY, cabinWidthPx, cabinDepthPx, inne
  };
 
 
-
-const handleShaftChange = (e) => {
+ const handleShaftChange = (e) => {
   const { name, value } = e.target;
     setShaftDimensions((prev) => ({
       ...prev,
@@ -8587,8 +9834,30 @@ const handleShaftChange = (e) => {
    const handleScaleChange = (event) => {
     setSelectedScale(parseFloat(event.target.value));
   };
- 
-
+  const handleWidthChange = (event) => {
+    const newWidth = parseInt(event.target.value, 10);
+    setDoorDimensions((prev) => ({
+      ...prev,
+      width: newWidth,
+    }));
+  };
+  const handleTShapeSetting = () => {
+    setTShapeSettings((prevSettings) => ({
+      ...prevSettings,
+      selectedWall: ['left & right'] // Add both walls for T-shape
+    }));
+  };
+  const handleClick = (event) => {
+    console.log(`Input clicked: ${event.target.name}`);
+    // Add other actions here
+};
+  const handleDoorFrameChange = (e) => {
+    const { name, value } = e.target;
+    setDoorFrameSettings((prev) => ({
+      ...prev,
+      [name]: parseInt(value, 10),
+    }));
+  };
   const handleWallThicknessChange = (e) => {
     const { name, value } = e.target;
     setWallThickness((prev) => ({
@@ -8596,15 +9865,19 @@ const handleShaftChange = (e) => {
         [name]: parseFloat(value),  // Update the thickness for the specific wall
     }));
   };
-  const handleClick = (event) => {
-    console.log(`Input clicked: ${event.target.name}`);
-    // Add other actions here
-};
-
+  const handleZoomIn = () => {
+    setZoomLevel((prevZoom) => Math.min(prevZoom * 1.2, 5)); // Limit max zoom
+  };
+  
+  const handleZoomOut = () => {
+    setZoomLevel((prevZoom) => Math.max(prevZoom / 1.2, 0.5)); // Limit min zoom
+  };
+  
+  
 
   useEffect(() => {
     const canvas = canvasRef.current;
-   
+    const context = canvas.getContext('2d');
 
     const handleMouseMove = (event) => {
       const rect = canvas.getBoundingClientRect();
@@ -8619,21 +9892,27 @@ const handleShaftChange = (e) => {
       canvas.removeEventListener('mousemove', handleMouseMove);
     };
   }, []);
- 
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
-    drawShaft(context);
-  }, [drawShaft, tShapeSettings, bracketsSettings]);
   
   useEffect(() => {
-    // Update tShapeSettings when rail type changes
-    setTShapeSettings((prevSettings) => ({
-      ...prevSettings,
-      ...T_SHAPE_RAIL_OPTIONS[selectedRailType],
-    }));
-  }, [selectedRailType]);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext('2d');
+    if (context) {
+    drawShaft(context);
+    context.restore(); 
+    }
+  
+  }, [canvasRef,drawShaft, tShapeSettings, bracketsSettings ,zoomLevel , cabinSettings ]);
+  
+
+  useEffect(() => {
+    if (!tShapeSettings.selectedWall) {
+      console.warn('No wall selected! Defaulting to "left".');
+      setTShapeSettings((prev) => ({ ...prev, selectedWall: 'left' })); // Default to left wall
+    }
+  }, []);
+  
 
 useEffect(() => {
   const dimensions = doorDimensionsLibrary[selectedDoorType]?.[DoorDimensions.width];
@@ -8650,71 +9929,64 @@ useEffect(() => {
     });
   }
 }, [selectedDoorType, DoorDimensions.width]);
-
+ 
 
   return (
     <div>
-      <h1>Shaft Design</h1> 
-      <label htmlFor="scale-select">Select Scale:</label>
-      <select id="scale-select" value={selectedScale} onChange={handleScaleChange}>
-        <option value={1 / 10}>1:10</option>
-        <option value={1 / 15}>1:15</option>
-        <option value={1 / 20}>1:20</option>
-        <option value={1 / 25}>1:25</option>
-        <option value={1 / 30}>1:30</option>
-        <option value={1 / 40}>1:40</option>
-        <option value={1 / 50}>1:50</option>
-      </select>
+      <h1>Shaft Design</h1>
+   
     <canvas ref={canvasRef} width={800} height={800} style={{ border: '1px solid black' }} />
-   <label htmlFor="doorType">Select Door Type:</label>
-<select
-  id="doorType"
-  value={selectedDoorType}
-  onChange={(e) => setSelectedDoorType(e.target.value)}
->
-  <option value="S1L">S1L</option>
-  <option value="S1R">S1R</option>
-  <option value="S2C">S2C </option>
-  <option value="S2L">S2L</option>
-  <option value="S2R">S2R</option>
-  <option value="S3L">S3L</option>
-  <option value="S3R">S3R</option>
-  <option value="S4C">S4C</option>
+    <div>
+
+    </div>
+  <label htmlFor="scale-select">Select Scale:</label>
+<select id="scale-select" value={selectedScale} onChange={handleScaleChange}>
+  <option value={1 / 10}>1:10</option>
+  <option value={1 / 15}>1:15</option>
+  <option value={1 / 20}>1:20</option>
+  <option value={1 / 25}>1:25</option>
+  <option value={1 / 30}>1:30</option>
+  <option value={1 / 40}>1:40</option>
+  <option value={1 / 50}>1:50</option>
 </select>
 
-<label htmlFor="rail-type">Select T-Shaped Rail:</label>
-      <select
-        id="rail-type"
-        value={selectedRailType}
-        onChange={(e) => setSelectedRailType(e.target.value)}
-      >
-        {Object.keys(T_SHAPE_RAIL_OPTIONS).map((type) => (
-          <option key={type} value={type}>
-            {type}
-          </option>
-        ))}
-      </select>
+  <button onClick={handleZoomIn} >Zoom In</button>
+  <button onClick={handleZoomOut} >Zoom Out</button>
+
+  {/* PDF Download Button */}
+<button onClick={downloadPDF}>Download PDF</button>
 
 
-        <h3>Inner Shaft Settings</h3>
-        <label>
-  Inner Shaft Width:
-  <input
-    type="number"
-    name="innerWidth"
-    value={shaftDimensions.innerWidth}
-    onChange={handleShaftChange}
-  />
+
+
+
+
+
+
+
+  
+<div>
+        
+
+
+  <h3> Shaft Settings</h3>
+  <label>
+Inner Shaft Width:
+<input
+type="number"
+name="innerWidth"
+value={shaftDimensions.innerWidth}
+onChange={handleShaftChange}
+/>
 </label>
-      
-        <label>
-  Inner Shaft Depth:
-  <input
-    type="number"
-    name="innerDepth"
-    value={shaftDimensions.innerDepth}
-    onChange={handleShaftChange}
-  />
+  <label>
+Inner Shaft Depth:
+<input
+type="number"
+name="innerDepth"
+value={shaftDimensions.innerDepth}
+onChange={handleShaftChange}
+/>
 </label>
 
 <div>
@@ -8757,6 +10029,23 @@ useEffect(() => {
 </div>
 
 <h3>Door Settings</h3>
+<label htmlFor="doorType">Select Door Type:</label>
+<select
+id="doorType"
+value={selectedDoorType}
+onChange={(e) => setSelectedDoorType(e.target.value)}
+>
+<option value="S1L">S1L</option>
+<option value="S1R">S1R</option>
+<option value="S2C">S2C </option>
+<option value="S2L">S2L</option>
+<option value="S2R">S2R</option>
+<option value="S3L">S3L</option>
+<option value="S3R">S3R</option>
+<option value="S4C">S4C</option>
+</select>
+
+
 
       <label htmlFor="doorWidth">Select Door Width:</label>
       <select
@@ -8767,14 +10056,14 @@ useEffect(() => {
 >
     {doorWidths.map((width) => (
         <option key={width} value={width}>
-            {width} mm
+            {width} 
         </option>
     ))}
 </select>
     
   
 <label>
-  Gap Between Doors (mm):
+  Gap Between Doors :
   <input
     type="number"
     name="doorGap"
@@ -8783,7 +10072,7 @@ useEffect(() => {
   />
 </label>
 <label>
-  Car Door Jamb (mm):
+  Car Door Jamb :
   <input
     type="number"
     name="carDoorJamb"
@@ -8792,14 +10081,28 @@ useEffect(() => {
   />
 </label>
 <label>
-    Wall Opening Offset (mm):
+    Wall Opening Offset :
     <input
-        type="number"
+        type="text"
         name="wallOpeningOffset"
         value={wallOpeningOffset}
-        onChange={(e) => setWallOpeningOffset(parseInt(e.target.value, 10))}
+        onChange={(e) => {
+            const value = e.target.value.trim();
+            if (/^[-+]?\d*$/.test(value)) { 
+                setWallOpeningOffset(value);
+            }
+        }}
+        onBlur={() => {
+            if (wallOpeningOffset === "+" || wallOpeningOffset === "-") {
+                setWallOpeningOffset(""); // Reset if only sign is entered
+            } else if (!isNaN(parseInt(wallOpeningOffset, 10))) {
+                setWallOpeningOffset(parseInt(wallOpeningOffset, 10)); // Convert to number on blur
+            }
+        }}
     />
 </label>
+
+
 
 
 <h3>Cabin Settings</h3>
@@ -8855,8 +10158,9 @@ useEffect(() => {
         />
     </label>
 </div>
+<h3>Door frame Settings</h3>
 
-<div id="doorFrameSettings">
+
   <label>Door Frame Width:</label>
   <input
     type="number"
@@ -8865,6 +10169,7 @@ useEffect(() => {
       setDoorFrameSettings((prev) => ({ ...prev, width: parseFloat(e.target.value) }))
     }
   />
+  
   <label>Door Frame Height:</label>
   <input
     type="number"
@@ -8873,16 +10178,27 @@ useEffect(() => {
       setDoorFrameSettings((prev) => ({ ...prev, height: parseFloat(e.target.value) }))
     }
   />
-</div>
 
-        <label>
-  Vertical Offset (mm):
+<label>Vertical Offset (mm):
   <input
-    type="number"
+    type="text"
     value={verticalOffset}
-    onChange={(e) => setVerticalOffset(parseInt(e.target.value, 10))}
+    onChange={(e) => {
+      const value = e.target.value.trim();
+      if (/^[-+]?\d*$/.test(value)) { 
+        setVerticalOffset(value);
+      }
+    }}
+    onBlur={() => {
+      if (verticalOffset === "+" || verticalOffset === "-") {
+        setVerticalOffset(""); // Reset if only sign is entered
+      } else if (!isNaN(parseInt(verticalOffset, 10))) {
+        setVerticalOffset(parseInt(verticalOffset, 10)); // Convert to number on blur
+      }
+    }}
   />
 </label>
+
 <h3>Bracket Settings</h3>
 <label>
   Bracket Height:
@@ -8895,29 +10211,75 @@ useEffect(() => {
 </label>
 
 
+  
+
+   
+{/* Show Horizontal Offset only when rear wall is selected */}
+{tShapeSettings.selectedWall === 'rear' && (
   <label>
     Horizontal Offset:
     <input
-      type="number"
-      value={horizontalOffsetX}
-      onChange={(e) => setHorizontalOffsetX(Number(e.target.value))}
+      type="text"
+      value={horizontalOffsetX } // Prevents NaN
+      onChange={(e) => {
+        const value = e.target.value;
+        if (/^-?\d*$/.test(value)) {
+          setHorizontalOffsetX(value) ;
+        }
+      }}
+      onBlur={() => {
+        if (horizontalOffsetX === "+" || horizontalOffsetX === "-") {
+          setHorizontalOffsetX(""); // Reset if only sign is entered
+        } else if (!isNaN(parseInt(horizontalOffsetX, 10))) {
+          setHorizontalOffsetX(parseInt(horizontalOffsetX, 10)); // Convert to number on blur
+        }
+      }}
+      
     />
   </label>
-  
+)}
+
+{/* Show Vertical Offset when left, right, or left & right wall is selected */}
+{['left', 'right', 'left & right'].includes(tShapeSettings.selectedWall) && (
   <label>
     Vertical Offset:
     <input
-      type="number"
-      value={verticalOffsetY}
-      onChange={(e) => setVerticalOffsetY(Number(e.target.value))}
+      type="text"
+      value={verticalOffsetY } // Prevents NaN
+      onChange={(e) => {
+        const value = e.target.value;
+        if (/^-?\d*$/.test(value)) {
+          setVerticalOffsetY(value);
+        }
+      }}
+      onBlur={() => {
+        if (verticalOffsetY === "+" || verticalOffsetY === "-") {
+          setVerticalOffsetY(""); // Reset if only sign is entered
+        } else if (!isNaN(parseInt(verticalOffsetY, 10))) {
+          setVerticalOffsetY(parseInt(verticalOffsetY, 10)); // Convert to number on blur
+        }
+      }}
     />
   </label>
+)}
 
 
-          <h3>T-Shape Settings</h3>
+         <h3>Guide Rail Settings</h3>
+         <label htmlFor="rail-type">Select T-Shaped Rail:</label>
+<select
+  id="rail-type"
+  value={selectedRailType}
+  onChange={(e) => setSelectedRailType(e.target.value)}
+>
+  {Object.keys(T_SHAPE_RAIL_OPTIONS).map((type) => (
+    <option key={type} value={type}>
+      {type}
+    </option>
+  ))}
+</select>
 
           <label>
-  Rail Distance (mm):
+  Rail Distance :
   <input
     type="number"
     name="railDistance"
@@ -9034,7 +10396,8 @@ useEffect(() => {
     />
   </label>
 )}
-   
+
+</div> 
       </div> 
   );
 };
